@@ -144,9 +144,10 @@ def coverage_units(g, lab, comps, paper, ink, allink, halo=HALO_PX, ring=None):
 
 
 def coverage(g, paper, ink):
-    """Ink coverage of grey levels with the halftone floor and the solid ceiling clipped off"""
+    """Ink coverage of grey levels with the halftone floor and the solid ceiling from the profile clipped off"""
+    lo, hi = target.get()["paper"]["coverage_clip"]
     cov = np.clip((paper - g.astype(np.float32)) / (paper - ink), 0, 1)
-    return np.clip((cov - 0.25) / 0.5, 0, 1)
+    return np.clip((cov - lo) / (hi - lo), 0, 1)
 
 
 def card_angle(g):

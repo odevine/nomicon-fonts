@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from glyphstack import styles, target
-from glyphstack.units import coverage_units, in_regions, scan_levels, segment
+from glyphstack.units import coverage, coverage_units, in_regions, scan_levels, segment
 
 
 @pytest.fixture
@@ -58,6 +58,15 @@ def test_a_one_face_profile_keys_glyphs_by_character(profile):
 def test_profiles_with_clashing_faces_are_refused(profile):
     with pytest.raises(ValueError):
         profile(('prefix = "i:"', 'prefix = ""'))
+
+
+def test_coverage_clip_sets_the_floor_and_ceiling(profile):
+    g = np.array([212.0, 170.0, 120.0, 28.0])
+    assert np.allclose(coverage(g, 212, 28), np.clip(((212 - g) / 184 - 0.25) / 0.5, 0, 1))
+    profile(("coverage_clip = [0.25, 0.75]", "coverage_clip = [0.1, 0.75]"))
+    assert np.allclose(coverage(g, 212, 28), np.clip(((212 - g) / 184 - 0.1) / 0.65, 0, 1))
+    with pytest.raises(ValueError):
+        profile(("coverage_clip = [0.25, 0.75]", "coverage_clip = [0.75, 0.25]"))
 
 
 def test_face_fonts_are_checked_against_the_profile():

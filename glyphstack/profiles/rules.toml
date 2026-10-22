@@ -36,6 +36,9 @@ core_px = 4
 local_min_px = 30
 # how far around a unit's box the local ring is looked for, in scan px
 local_window_px = 24
+# coverage at or below the first value reads as paper and at or above the second as solid ink, with the range
+# between stretched to 0 to 1. The floor keeps the halftone texture behind the text out of the units
+coverage_clip = [0.25, 0.75]
 
 [segment]
 # grey level below which a pixel is ink, after a 1.2 px Gaussian blur

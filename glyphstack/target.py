@@ -87,6 +87,9 @@ def load(spec=DEFAULT):
         raise ValueError(f"{path}: missing sections {', '.join(missing)}")
     if d["paper"]["mode"] not in ("scan", "local"):
         raise ValueError(f"{path}: paper mode is scan or local")
+    lo, hi = d["paper"]["coverage_clip"]
+    if not 0 <= lo < hi <= 1:
+        raise ValueError(f"{path}: coverage_clip is a floor and a ceiling with 0 <= floor < ceiling <= 1")
     return Profile(d["name"], str(path), hashlib.sha256(raw).hexdigest(), faces, regions, {s: d[s] for s in SECTIONS})
 
 
