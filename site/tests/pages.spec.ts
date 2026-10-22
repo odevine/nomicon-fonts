@@ -66,7 +66,7 @@ test('the data page carries the glyph, stacking and spacing tables', async ({ pa
 });
 
 test('notes are plain text with no proofreader label', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/data/');
   const content = await page.locator('.proof').first().evaluate((e) => getComputedStyle(e, '::before').content);
   expect(['none', 'normal']).toContain(content);
   await expect(page.locator('main')).not.toContainText('stet');
