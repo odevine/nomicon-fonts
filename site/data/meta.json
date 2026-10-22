@@ -1,0 +1,5 @@
+{
+ "min_instances": 12,
+ "confident_instances": 20,
+ "confident_cards": 5
+}

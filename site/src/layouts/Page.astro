@@ -1,0 +1,45 @@
+---
+import '../styles/marks.css';
+import '../styles/global.css';
+import { href, pages } from '../lib/site';
+
+interface Props { title: string; description?: string }
+const { title, description = 'A text face revival with real printing imperfections, digitized from printed trading cards.' } = Astro.props;
+const full = title === 'Nomicon Fonts' ? title : `${title} · Nomicon Fonts`;
+const current = Astro.url.pathname;
+const faces = [
+  ['400-normal', 400, 'normal'],
+  ['400-italic', 400, 'italic'],
+  ['600-normal', 600, 'normal'],
+].map(([f, w, s]) => `@font-face{font-family:'Stand-in Serif';src:url('${href(`/fonts/eb-garamond-latin-${f}.woff2`)}') format('woff2');font-weight:${w};font-style:${s};font-display:swap}`).join('');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{full}</title>
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="preload" href={href('/fonts/eb-garamond-latin-400-normal.woff2')} as="font" type="font/woff2" crossorigin />
+    <style is:inline set:html={faces}></style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site">
+      <a class="mark" href={href('/')}>Nomicon Fonts</a>
+      <nav aria-label="Main">
+        <ul>
+          {pages.filter((p) => !p.hidden).map((p) => (
+            <li><a href={href(p.path)} aria-current={current.startsWith(href(p.path)) ? 'page' : undefined}>{p.title}</a></li>
+          ))}
+        </ul>
+      </nav>
+    </header>
+    <main id="main"><slot /></main>
+    <footer class="site">
+      <p>Nomicon Fonts is unofficial Fan Content permitted under the Fan Content Policy. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
+      <p>Card scans are not published. This site shows derived outlines, measurements and small captioned crops only.</p>
+    </footer>
+  </body>
+</html>

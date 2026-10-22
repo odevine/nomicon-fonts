@@ -1,0 +1,142 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyphs, glyph, calibration, noisePair, pairInfo, fmt } from '../../lib/data';
+import { cardName, deg, glyphLabel, bbox } from '../../lib/format';
+import { fitCrops, place, placeStyle, baselinePct } from '../../lib/labfit';
+import { href } from '../../lib/site';
+
+const cal = calibration();
+const { lead } = noisePair();
+const boxes = glyphs().map((g) => ({ g, box: bbox(glyph(g.name).mean['0.5']), crop: pairInfo(g.name) }));
+const fit = fitCrops(boxes.map((b) => ({ crop: b.crop, box: b.box })));
+const gl = boxes.map(({ g, box }) => ({ name: g.name, char: g.char, style: g.style, y0: box.y0 }));
+const first = pairInfo('e');
+const firstStyle = placeStyle(place(first, boxes.find((b) => b.g.name === 'e')!.box.y0, fit));
+const ppi = cal.summary.px_per_mm * 25.4;
+const px_um = 25400 / 1200;
+
+// edge widths, dots stacked where they would overlap
+const w = [...cal.edge_w1090_um].sort((a, b) => a - b);
+const wlo = Math.floor(Math.min(...w) / 10) * 10 - 10, whi = Math.ceil(Math.max(...w) / 10) * 10 + 10;
+const stack: number[] = [], seen: number[] = [];
+w.forEach((v) => { const k = seen.filter((u) => Math.abs(u - v) < 1.8).length; stack.push(k); seen.push(v); });
+const wpos = (v: number) => ((v - wlo) / (whi - wlo)) * 100;
+const wTicks = Array.from({ length: (whi - wlo) / 10 + 1 }, (_, i) => wlo + i * 10);
+
+// tone curve
+const tp = cal.tone_percent_black;
+const T = { w: 520, h: 300, l: 52, r: 14, t: 14, b: 44 };
+const tx = (p: number) => T.l + (p / 100) * (T.w - T.l - T.r);
+const ty = (g: number) => T.t + ((255 - g) / 255) * (T.h - T.t - T.b);
+const curve = (a: number[]) => a.map((g, i) => `${i ? 'L' : 'M'}${tx(tp[i]).toFixed(1)},${ty(g).toFixed(1)}`).join('');
+const linear = `M${tx(0)},${ty(cal.tone.a[0])}L${tx(100)},${ty(cal.tone.a[cal.tone.a.length - 1])}`;
+const mid = tp.indexOf(50);
+
+---
+<Page title="Capture" description="How the cards are scanned, what the scanner is checked against, and how much noise two scans of one letter show.">
+  <div class="flow">
+  <article>
+    <p class="kicker">Capture</p>
+    <h1>Capture</h1>
+    <p class="lede">Every card is scanned twice on a flatbed scanner, and a printed target keeps the scanner honest.</p>
+    <p>Each card goes on the glass at 1200 ppi in greyscale, saved without compression. The scanner’s own straightening is switched off, because it resamples the image and changes the weight of the strokes.</p>
+    <p>Each card is scanned once upright and once turned a quarter turn. That puts the same printed letter on two different pixel grids. Averaging the two copies cuts the noise of the scan by about a third, and the difference between them measures that noise directly. The Noise Lab below shows it.</p>
+    <p>A calibration target printed on paper is scanned both ways too. It reads {fmt(cal.summary.px_per_mm, 2)} pixels per millimetre, which is {fmt(ppi, 0)} ppi, the same in both directions to within {fmt(cal.summary.scan_anisotropy * 100, 2)} %. The two things below are the ones that limit what the project can claim.</p>
+  </article>
+
+  <section class="flow" aria-labelledby="bench">
+    <h2 id="bench">Calibration Bench</h2>
+    <div class="bench mid">
+      <figure class="bench-card">
+        <p class="big"><span class="num-lg">{fmt(cal.summary.edge_w1090_um_median, 0)} µm</span> to go from paper to ink</p>
+        <p class="cap">Each dot is one edge of the slanted squares on the target, measured as the width over which it changes from 10 % to 90 % ink. They range from {fmt(Math.min(...w), 0)} to {fmt(Math.max(...w), 0)} µm. One scanner pixel is {fmt(px_um, 0)} µm, so an edge is blurred over about {fmt(cal.summary.edge_w1090_um_median / px_um, 0)} pixels. Stacking reduces noise, but it cannot recover detail finer than this.</p>
+        <div class="strip" role="img" aria-label={`${w.length} edge widths from ${fmt(Math.min(...w), 0)} to ${fmt(Math.max(...w), 0)} micrometres`}>
+          <div class="strip-track">
+            {w.map((v, i) => <span class="sdot" style={`left:${wpos(v)}%; bottom:${0.2 + stack[i] * 0.9}rem`}></span>)}
+            <span class="median" style={`left:${wpos(cal.summary.edge_w1090_um_median)}%`}></span>
+          </div>
+          <div class="strip-axis">{wTicks.map((t) => <span class="tick" style={`left:${wpos(t)}%`}>{t}</span>)}</div>
+          <p class="cap strip-unit">edge width, µm</p>
+          <div class="pixel"><span class="pixel-bar" style={`width:${(px_um / (whi - wlo)) * 100}%`}></span><span>one pixel, {fmt(px_um, 0)} µm</span></div>
+        </div>
+      </figure>
+
+      <figure class="bench-card">
+        <p class="big"><span class="num-lg">Not a straight line</span> from white to black</p>
+        <p class="cap">The target has eleven tone steps from no ink to solid black. The scanner compresses the darks: the steps from half black upward all read nearly the same. Turning grey level into ink amount needs this curve. Hover or focus the chart and use the arrow keys.</p>
+        <tone-curve data-percent={JSON.stringify(tp)} data-a={JSON.stringify(cal.tone.a)} data-b={JSON.stringify(cal.tone.b)}>
+          <svg class="tone" viewBox={`0 0 ${T.w} ${T.h}`} tabindex="0" role="group" aria-labelledby="tc-t tc-d">
+            <title id="tc-t">Tone steps, grey level against percent black</title>
+            <desc id="tc-d">Grey level falls steeply for the first steps and flattens in the darks, for two scans. A straight line is drawn for comparison. Use the left and right arrow keys to read each step.</desc>
+            {[0, 64, 128, 192, 255].map((g) => <g><line class="grid" x1={T.l} x2={T.w - T.r} y1={ty(g)} y2={ty(g)} /><text class="axt" x={T.l - 8} y={ty(g) + 4} text-anchor="end">{g}</text></g>)}
+            {tp.filter((_, i) => i % 2 === 0).map((p) => <text class="axt" x={tx(p)} y={T.h - T.b + 18} text-anchor="middle">{p}</text>)}
+            <text class="axt" x={(T.l + T.w - T.r) / 2} y={T.h - 6} text-anchor="middle">percent black printed</text>
+            <text class="axt" transform={`translate(12 ${(T.t + T.h - T.b) / 2}) rotate(-90)`} text-anchor="middle">grey level read</text>
+            <path class="ref" d={linear} />
+            <path class="lineb" d={curve(cal.tone.b)} />
+            <path class="linea" d={curve(cal.tone.a)} />
+            {tp.map((p, i) => <g><circle class="pa" cx={tx(p)} cy={ty(cal.tone.a[i])} r="4" /><circle class="pb" cx={tx(p)} cy={ty(cal.tone.b[i])} r="4" /></g>)}
+            <line class="cursor" x1={tx(tp[mid])} x2={tx(tp[mid])} y1={T.t} y2={T.h - T.b} />
+          </svg>
+          <dl class="readout mono" aria-live="polite"><dt>Printed black</dt><dd class="tc-p">{tp[mid]} %</dd><dt>Scan A, solid</dt><dd class="tc-a">{fmt(cal.tone.a[mid], 0)}</dd><dt>Scan B, dashed</dt><dd class="tc-b">{fmt(cal.tone.b[mid], 0)}</dd></dl>
+        </tone-curve>
+        <p class="cap">The dotted line is what a linear scanner would read between the white and the black ends. The two scans differ slightly in the mid-greys, so the curve is read per scan session.</p>
+      </figure>
+    </div>
+    <p class="src">The scale from each ruler, every edge width and the tone values are in the tables on the <a href={`${href('/data/')}#calibration`}>data page</a>.</p>
+  </section>
+
+  <section aria-labelledby="lab">
+    <h2 id="lab">Noise Lab</h2>
+    <article>
+      <p>Drag the line across one letter to compare its two copies, or switch to the difference. It is the same ink, so where they disagree is scan noise.</p>
+    </article>
+    <noise-lab data-base={href('/data/')} data-glyphs={JSON.stringify(gl)} data-fit={JSON.stringify(fit)}>
+      <div class="lab">
+        <div class="lab-stage">
+          <div class="lab-pair" style={`--base:${baselinePct()}`}>
+            <div class="layer"><img class="ink-img" src={href(`/data/noise/e_u.webp`)} width={first.w} height={first.h} style={firstStyle} alt={`The letter e, scanned at ${deg(first.upright_angle)}`} /></div>
+            <div class="layer"><img class="ink-img" src={href(`/data/noise/e_t.webp`)} width={first.w} height={first.h} style={firstStyle} alt={`The letter e, scanned at ${deg(first.turned_angle)}`} /></div>
+          </div>
+          <p class="cap">Two copies of one printed e from {cardName(first.card)}, scanned at {deg(first.upright_angle)} and {deg(first.turned_angle)}.</p>
+        </div>
+        <p class="cap">In the pilot this noise was about the size of the real differences between two printed copies of a letter, which is why each card is scanned twice and many copies are stacked. One scan is off by about {fmt(lead.single_scan_um)} µm at the edge and the mean of a pair by about {fmt(lead.pair_mean_um)} µm. The distribution over all pairs is on the <a href={`${href('/data/')}#noise`}>data page</a>.</p>
+      </div>
+    </noise-lab>
+  </section>
+  </div>
+</Page>
+<script>import '../../scripts/capture';</script>
+<style is:global>
+  .bench { display: grid; gap: 2rem; margin: 1.5rem 0; }
+  .bench-card { margin: 0; background: var(--fill); border-radius: var(--r-lg); padding: 1.5rem; }
+  .bench-card .big { font-size: 1.1rem; margin: 0 0 0.4rem; }
+  .num-lg { font-size: 2rem; line-height: 1.1; }
+  .cap { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0; max-width: 40rem; }
+  tone-curve { display: grid; grid-template-columns: minmax(0, 520px) auto; gap: 1rem 2rem; align-items: start; }
+  .tone { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  .tone .grid { stroke: var(--rule); stroke-width: 1; }
+  .tone .axt { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-style: italic; font-size: 14px; fill: var(--muted); }
+  .tone .ref { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 4; }
+  .tone .linea { fill: none; stroke: var(--ink); stroke-width: 2; }
+  .tone .lineb { fill: none; stroke: var(--blue); stroke-width: 2; stroke-dasharray: 6 4; }
+  .tone .pa { fill: var(--ink); } .tone .pb { fill: var(--paper); stroke: var(--blue); stroke-width: 2; }
+  .tone .cursor { stroke: var(--red); stroke-width: 1.5; }
+  .tone:focus-visible { outline-offset: 4px; }
+  .lab { margin: 1.5rem 0; max-width: 34rem; }
+  /* one fixed window in font units: every letter is drawn at the same size on the same baseline */
+  .lab-pair { position: relative; width: 100%; max-width: 22rem; aspect-ratio: 700 / 1010; border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(var(--rule), var(--rule)) 0 var(--base, 75%) / 100% 1px no-repeat, var(--fill); }
+  .lab-pair .layer { position: absolute; inset: 0; }
+  .lab-pair img, .lab-pair canvas { position: absolute; display: block; }
+  .lab-pair [hidden], .nl-wipe[hidden] { display: none; }
+  .lab-pair .layer.cut { clip-path: inset(0 0 0 var(--cut, 50%)); }
+  .lab-pair .divider { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); border-left: 2px solid var(--red); pointer-events: none; }
+  .picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1rem; padding: 0; border: 0; }
+  .picker legend { font-family: var(--label); font-style: italic; font-size: 0.9rem; margin-bottom: 0.4rem; padding: 0; }
+  .picker label { position: relative; }
+  .picker input { position: absolute; opacity: 0; inset: 0; }
+  .picker span { display: inline-block; min-width: 2.3rem; text-align: center; padding: 0.25rem 0.5rem; border: 0; border-radius: 0.8rem; background: var(--fill); cursor: pointer; font-size: 1.1rem; }
+  .picker input:checked + span { border-color: var(--red); background: var(--red); color: #fff; }
+  .picker input:focus-visible + span { outline: 2px solid var(--red); outline-offset: 2px; }
+  @media (max-width: 52rem) { tone-curve { grid-template-columns: 1fr; } }
+</style>

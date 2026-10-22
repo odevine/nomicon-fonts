@@ -1,0 +1,128 @@
+{
+ "Altair": {
+  "scans": [
+   {
+    "scan": "scan__000",
+    "angle": 0.0,
+    "edge_level": 0.5529781341552734,
+    "rot_deg": 0.12924180924892426
+   },
+   {
+    "scan": "scan__001",
+    "angle": 90.0,
+    "edge_level": 0.5288082122802733,
+    "rot_deg": -0.4757419526576996
+   }
+  ],
+  "print_scale": 0.87,
+  "units": 475
+ },
+ "ReefWorm": {
+  "scans": [
+   {
+    "scan": "scan__002",
+    "angle": 0.0,
+    "edge_level": 0.4655750274658203,
+    "rot_deg": -0.016483858227729797
+   },
+   {
+    "scan": "scan__003",
+    "angle": 90.0,
+    "edge_level": 0.4477542877197266,
+    "rot_deg": 0.14969204366207123
+   }
+  ],
+  "print_scale": 1.0,
+  "units": 324
+ },
+ "LunarRejection": {
+  "scans": [
+   {
+    "scan": "scan__004",
+    "angle": 0.0,
+    "edge_level": 0.5581050872802733,
+    "rot_deg": 0.22819644212722778
+   },
+   {
+    "scan": "scan__005",
+    "angle": 90.0,
+    "edge_level": 0.5478511810302735,
+    "rot_deg": -0.12683247029781342
+   }
+  ],
+  "print_scale": 1.01,
+  "units": 274
+ },
+ "HalcyonGlaze": {
+  "scans": [
+   {
+    "scan": "scan__006",
+    "angle": 0.0,
+    "edge_level": 0.5380847930908204,
+    "rot_deg": 0.12036334723234177
+   },
+   {
+    "scan": "scan__007",
+    "angle": 90.0,
+    "edge_level": 0.5400394439697265,
+    "rot_deg": 0.06149071455001831
+   }
+  ],
+  "print_scale": 0.95,
+  "units": 348
+ },
+ "Aethersnipe": {
+  "scans": [
+   {
+    "scan": "scan__008",
+    "angle": 0.0,
+    "edge_level": 0.5087879180908204,
+    "rot_deg": -0.03362100571393967
+   },
+   {
+    "scan": "scan__009",
+    "angle": 90.0,
+    "edge_level": 0.4965816497802734,
+    "rot_deg": -0.0034954093862324953
+   }
+  ],
+  "print_scale": 1.0,
+  "units": 310
+ },
+ "PatronWizard": {
+  "scans": [
+   {
+    "scan": "scan__010",
+    "angle": 0.0,
+    "edge_level": 0.5014636993408204,
+    "rot_deg": 0.147818461060524
+   },
+   {
+    "scan": "scan__011",
+    "angle": 90.0,
+    "edge_level": 0.5092777252197267,
+    "rot_deg": -0.07203716039657593
+   }
+  ],
+  "print_scale": 0.87,
+  "units": 356
+ },
+ "QuilledWolf": {
+  "scans": [
+   {
+    "scan": "scan__012",
+    "angle": 0.0,
+    "edge_level": 0.4028316497802734,
+    "rot_deg": 0.5462872385978699
+   },
+   {
+    "scan": "scan__013",
+    "angle": 90.0,
+    "edge_level": 0.4028316497802734,
+    "rot_deg": 0.3467784821987152
+   }
+  ],
+  "print_scale": 0.99,
+  "units": 281
+ }
+}

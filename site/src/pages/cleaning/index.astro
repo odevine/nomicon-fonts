@@ -1,0 +1,177 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyph, steps, cards, noisePair, edgeLevels, fmt } from '../../lib/data';
+import { bbox, viewBox, PAD, spreadBands, bezierParts, cardName, deg } from '../../lib/format';
+import { href } from '../../lib/site';
+
+const s = steps('e');
+const e = glyph('e');
+const img = (f: string) => href(`/data/steps/${f}`);
+const px = (um: number) => um / s.um_per_px;
+const gpx = (um: number) => um / s.um_per_grid_px;
+const { lead } = noisePair();
+const lv = edgeLevels();
+const b = bbox(e.trace);
+const bz = bezierParts(e.trace);
+const bands = spreadBands(e.spread);
+const levels = Object.keys(e.mean).sort();
+const scanRows = Object.values(cards()).flatMap((c) => c.scans).sort((a, z) => a.scan.localeCompare(z.scan));
+const dash = ['', '', '', '5 3', '5 3', '5 3'];
+const stroke = ['var(--ink)', 'var(--red)', 'var(--blue)'];
+const w3 = s.s3.w, h3 = s.s3.h, w4 = s.s3.w * 4, h4 = s.s3.h * 4;
+const bar = { w: 330, h: 190, y0: 100, k: 380 };
+const fuBar = 100 / s.um_per_fu;
+const sx = [
+  { n: 1, title: 'Raw scan', links: [] as [string, string][] },
+  { n: 2, title: 'Isolate the glyph', links: [] },
+  { n: 3, title: 'Tone to ink coverage', links: [] },
+  { n: 4, title: 'Rectify and upsample 4×', links: [['The scanner’s scale and blur', '/data/#calibration']] },
+  { n: 5, title: 'Register to sub-pixel', links: [] },
+  { n: 6, title: 'Pool views at two angles', links: [['The noise numbers', '/data/#noise']] },
+  { n: 7, title: 'Normalise the edge level', links: [['Edge levels in the data', '/data/#edge-levels']] },
+  { n: 8, title: `Stack ${e.n} printed e’s`, links: [['Open the Stack', '/glyphs/e/']] },
+  { n: 9, title: 'Trace to Bézier curves', links: [] },
+  { n: 10, title: 'The final glyph', links: [['The glyph page', '/glyphs/e/']] },
+];
+---
+<Page title="Cleaning" description="From a scan to one clean glyph, step by step, shown on the letter e.">
+  <p class="kicker">From scan to glyph</p>
+  <h1>Cleaning</h1>
+  <p class="lede">Ten steps take a halftone-printed letter in a 1200 ppi scan to a traced shape. Each step shows the real data for one printed <em>e</em>.</p>
+  <p class="proof">The crops on this page are a few letters of rules text from {cardName(s.card)}, scans {s.upright} and {s.turned}, shown at scanner resolution so the pixels are visible. The scans themselves are not published.</p>
+
+  <nav class="seq-nav" aria-label="Steps">
+    <ol>{sx.map((x) => <li><a href={`#step-${x.n}`}>{x.n}<span class="vh"> {x.title}</span></a></li>)}</ol>
+  </nav>
+
+  <div class="seq wide">
+    <section class="step" id="step-1" aria-labelledby="h1s">
+      <div class="txt"><p class="num">1</p><h2 id="h1s">Raw scan</h2>
+        <p>Native 1200 ppi greyscale, one pixel is {fmt(s.um_per_px)} µm. The card was scanned upright. The <em>e</em> sits among its neighbours and the surface is halftone-printed, so edges look dotted.</p>
+        <p class="src">Crop of {cardName(s.card)} rules text, {s.s1.w} × {s.s1.h} px.</p></div>
+      <figure class="panel"><svg viewBox={`0 0 ${s.s1.w} ${s.s1.h}`} role="img" aria-labelledby="p1t"><title id="p1t">Raw scan crop</title>
+        <image href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} />
+        <line class="bar" x1="10" x2={10 + px(200)} y1={s.s1.h - 12} y2={s.s1.h - 12} /></svg>
+        <p class="legend">Red bar: 200 µm</p></figure>
+    </section>
+
+    <section class="step" id="step-2" aria-labelledby="h2s">
+      <div class="txt"><p class="num">2</p><h2 id="h2s">Isolate the glyph</h2>
+        <p>Blue is this <em>e</em>, one connected component. Red is neighbouring ink. Grey is a {s.s2.halo_px} px exclusion halo so a neighbour’s ink cannot leak into this glyph’s edges.</p></div>
+      <figure class="panel"><svg viewBox={`0 0 ${s.s1.w} ${s.s1.h}`} role="img" aria-labelledby="p2t p2d"><title id="p2t">Segmentation of the crop</title><desc id="p2d">The e in blue, neighbouring letters in red and a grey halo around them.</desc>
+        <image href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} opacity="0.35" /><image href={img(s.s2.file)} width={s.s1.w} height={s.s1.h} /></svg></figure>
+    </section>
+
+    <section class="step" id="step-3" aria-labelledby="h3s">
+      <div class="txt"><p class="num">3</p><h2 id="h3s">Tone to ink coverage</h2>
+        <p>Scan levels (paper {fmt(s.paper, 0)}, ink {fmt(s.ink, 0)}) map to coverage from 0 to 1. Left: linear coverage, with the paper texture visible. Right: texture below 0.25 suppressed, half of the edge kept, neighbours masked.</p></div>
+      <figure class="panel pair"><div class="sub"><p class="lab">linear coverage</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Linear coverage"><image class="ink-img" href={img(s.s3.linear)} width={w3} height={h3} /></svg></div>
+        <div class="sub"><p class="lab">cleaned</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Cleaned coverage"><image class="ink-img" href={img(s.s3.clean)} width={w3} height={h3} /></svg></div></figure>
+    </section>
+
+    <section class="step" id="step-4" aria-labelledby="h4s">
+      <div class="txt"><p class="num">4</p><h2 id="h4s">Rectify and upsample 4×</h2>
+        <p>The scan’s measured tilt ({s.rot_deg > 0 ? '+' : ''}{fmt(s.rot_deg, 2)}°) is removed, the card is scaled to one common size and aspect, and the coverage is upsampled on a 4× grid, where one grid pixel is {fmt(s.um_per_grid_px)} µm. Edges can now fall between the original pixels.</p>
+        <p class="src">The scanner blur is wider than the pixel, so this places edges but does not add detail.</p></div>
+      <figure class="panel pair" style={`grid-template-columns: ${w4}fr ${s.s4.w}fr`}>
+        <div class="sub"><p class="lab">native pixels ×4</p><svg viewBox={`0 0 ${w4} ${h4}`} role="img" aria-label="Native pixels at 4 times"><image class="ink-img px" href={img(s.s3.clean)} width={w4} height={h4} /></svg></div>
+        <div class="sub"><p class="lab">rectified, cubic 4× grid</p><svg viewBox={`0 0 ${s.s4.w} ${s.s4.h}`} role="img" aria-label="Rectified 4 times grid"><image class="ink-img" href={img(s.s4.file)} width={s.s4.w} height={s.s4.h} />
+          <line class="bar" x1="10" x2={10 + gpx(100)} y1={s.s4.h - 8} y2={s.s4.h - 8} /></svg></div>
+        <p class="legend wide">Red bar: 100 µm. Both images are at the same scale.</p></figure>
+    </section>
+
+    <section class="step" id="step-5" aria-labelledby="h5s">
+      <div class="txt"><p class="num">5</p><h2 id="h5s">Register to sub-pixel</h2>
+        <p>{s.s5.cards.length} <em>e</em>’s from {s.s5.cards.length} different cards at the 0.5 edge. Left: aligned by centre of mass only. Right: after sub-pixel registration. This panel registers these {s.s5.cards.length} on their own, the stack registers all of them.</p>
+        <ul class="key">{s.s5.cards.map((c, i) => <li><svg width="30" height="8" aria-hidden="true"><line x1="0" x2="30" y1="4" y2="4" stroke={stroke[i % 3]} stroke-width="2" stroke-dasharray={dash[i] || undefined} /></svg>{cardName(c)}</li>)}</ul></div>
+      <figure class="panel pair"><div class="sub"><p class="lab">centre of mass only</p><svg viewBox={`0 0 ${s.s5.w} ${s.s5.h}`} role="img" aria-label="Contours aligned by centre of mass"><g class="regs">{s.s5.before.map((d, i) => <path d={d} stroke={stroke[i % 3]} stroke-dasharray={dash[i] || undefined} />)}</g></svg></div>
+        <div class="sub"><p class="lab">after registration</p><svg viewBox={`0 0 ${s.s5.w} ${s.s5.h}`} role="img" aria-label="Contours after registration"><g class="regs">{s.s5.after.map((d, i) => <path d={d} stroke={stroke[i % 3]} stroke-dasharray={dash[i] || undefined} />)}</g></svg></div></figure>
+    </section>
+
+    <section class="step" id="step-6" aria-labelledby="h6s">
+      <div class="txt"><p class="num">6</p><h2 id="h6s">Pool views at two angles</h2>
+        <p>The same physical <em>e</em> scanned at 0° and 90° is sampled on a different pixel grid. Averaging the pair cuts scan noise by √2. This pair differs by {fmt(s.pair_dev_um)} µm edge RMS. Over all pairs, a single scan is about {fmt(lead.single_scan_um)} µm and a pair mean about {fmt(lead.pair_mean_um)} µm.</p></div>
+      <figure class="panel quad">{[[`scan at ${deg(s.upright_angle)}`, 0], [`scan at ${deg(s.turned_angle)}`, 1], ['mean of the two', 2], ['|difference| × 2.5', 3]].map(([t, i]) => <div class="sub"><p class="lab">{t}</p><svg viewBox={`0 0 ${s.s6.w} ${s.s6.h}`} role="img" aria-label={t as string}><image class="ink-img" href={img(s.s6.files[i as number])} width={s.s6.w} height={s.s6.h} /></svg></div>)}</figure>
+    </section>
+
+    <section class="step" id="step-7" aria-labelledby="h7s">
+      <div class="txt"><p class="num">7</p><h2 id="h7s">Normalise the edge level</h2>
+        <p>Each scan’s tone curve puts the ink edge at a different coverage. The bars show the level that gives the same ink area for the same glyph, from {fmt(lv.min, 2)} to {fmt(lv.max, 2)} over {lv.scans} scans, where 0.50 would be no change. Levels are shifted so every scan gives the same area.</p></div>
+      <figure class="panel"><svg viewBox={`0 0 ${bar.w} ${bar.h}`} role="img" aria-labelledby="p7t p7d"><title id="p7t">Edge level of each scan</title><desc id="p7d">Bars show each scan’s edge level minus 0.5. Upright scans are blue, scans at any other angle are red with a lighter fill. The values are in the data table.</desc>
+        <line class="axis" x1="28" x2={bar.w - 6} y1={bar.y0} y2={bar.y0} />
+        {scanRows.map((r, i) => { const v = (r.edge_level - 0.5) * bar.k; const turned = r.angle % 360 !== 0;
+          return <g><rect x={32 + i * 21} y={v >= 0 ? bar.y0 - v : bar.y0} width="15" height={Math.abs(v)} fill={turned ? 'var(--paper)' : 'var(--blue)'} stroke={turned ? 'var(--red)' : 'var(--blue)'} stroke-width="2" />
+          <text class="tick" x={39.5 + i * 21} y={bar.y0 + 62} text-anchor="middle">{r.scan.slice(-2)}</text><text class="tick" x={39.5 + i * 21} y={bar.y0 + 74} text-anchor="middle">{deg(r.angle)}</text></g>; })}
+        <text class="tick" x="26" y={bar.y0 + 3} text-anchor="end">0.50</text><text class="tick" x="26" y={bar.y0 - 36} text-anchor="end">{fmt(0.5 + 36 / bar.k, 2)}</text><text class="tick" x="26" y={bar.y0 + 42} text-anchor="end">{fmt(0.5 - 42 / bar.k, 2)}</text>
+        <text class="tick" x={bar.w / 2} y={bar.h - 4} text-anchor="middle">scan number and angle</text></svg></figure>
+    </section>
+
+    <section class="step" id="step-8" aria-labelledby="h8s">
+      <div class="txt"><p class="num">8</p><h2 id="h8s">Stack {e.n} printed e’s</h2>
+        <p>The mean over {e.n} independent glyphs from {e.cards.length} cards (left) and the pixel-to-pixel spread between them (right), which concentrates on the edges. Outliers are dropped by a leave-one-out overlap test first.</p></div>
+      <figure class="panel pair"><div class="sub"><p class="lab">mean coverage</p><svg viewBox={viewBox(b, PAD)} role="img" aria-label="Mean coverage of the stacked e"><g class="cloud">{levels.map((l) => <path d={e.mean[l]} fill-rule="evenodd" />)}</g></svg></div>
+        <div class="sub"><p class="lab">pixel-to-pixel spread</p><svg viewBox={viewBox(b, PAD)} role="img" aria-label="Spread of the stacked e"><g class="spread" transform={`matrix(${e.spread.to_fu.join(' ')})`}>{bands.map((d, i) => <path d={d} fill-opacity={((i + 1) / bands.length * 0.85).toFixed(2)} />)}</g></svg></div></figure>
+    </section>
+
+    <section class="step" id="step-9" aria-labelledby="h9s">
+      <div class="txt"><p class="num">9</p><h2 id="h9s">Trace to Bézier curves</h2>
+        <p>The 0.5 contour is fitted with cubic Béziers by potrace: {e.nodes} nodes for this glyph. Squares are nodes, blue dots are control points. The curve smooths pixel noise but keeps the printed shape.</p></div>
+      <figure class="panel"><svg viewBox={viewBox(b, PAD)} role="img" aria-labelledby="p9t"><title id="p9t">Trace with nodes and control points</title>
+        <path class="fill-grey" d={e.trace} fill-rule="evenodd" /><path class="outline" d={e.trace} fill-rule="evenodd" />
+        {bz.handles.map(([x, y]) => <circle class="hnd" cx={x} cy={y} r="2.6" />)}
+        {bz.nodes.map(([x, y]) => <rect class="nd" x={x - 3.5} y={y - 3.5} width="7" height="7" />)}</svg></figure>
+    </section>
+
+    <section class="step" id="step-10" aria-labelledby="h10s">
+      <div class="txt"><p class="num">10</p><h2 id="h10s">The final glyph</h2>
+        <p>The traced printed shape. Against the designed font, fitted by size and position only, its edge RMS is {fmt(e.edge_rms_um, 2)} µm and IoU {fmt(e.iou, 3)}. The print sits about {fmt(s.ink_spread_um, 0)} µm outside the design on each edge. This ink spread is relative to the pooled edge level, not an absolute measurement.</p>
+        <p class="proof placeholder">The designed outline is not drawn here. A few short windows of it may be shown later, once their size is agreed.</p></div>
+      <figure class="panel"><svg viewBox={viewBox(b, PAD)} role="img" aria-labelledby="p10t"><title id="p10t">The traced e</title>
+        <path class="ink-fill" d={e.trace} fill-rule="evenodd" />
+        <line class="bar" x1={b.x0} x2={b.x0 + fuBar} y1={b.y1 + PAD - 14} y2={b.y1 + PAD - 14} /></svg>
+        <p class="legend">Red bar: 100 µm</p></figure>
+    </section>
+  </div>
+  <p class="src">Also applied: the scanner was checked with a printed calibration target, earlier autorotated scans left out, and the views of one printed glyph at different angles counted as one instance.</p>
+</Page>
+<script>import '../../scripts/seq';</script>
+<style is:global>
+  .seq-nav { position: sticky; top: 0; z-index: 5; background: var(--paper); margin: 2rem 0 0; padding: 0.6rem 0; }
+  .seq-nav ol { display: flex; gap: 0.25rem; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+  .seq-nav a { display: block; min-width: 2.2rem; text-align: center; padding: 0.2rem 0.5rem; font-family: var(--label); font-style: italic; font-size: 0.9rem; border: 0; border-radius: 999px; background: var(--fill); text-decoration: none; }
+  .seq-nav a[aria-current] { border-color: var(--red); background: var(--red); color: #fff; }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .seq { margin-top: 1rem; }
+  .step { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(0, 1.6fr); gap: 1rem 3rem; align-items: start; padding: 3rem 0; scroll-margin-top: 3.5rem; }
+  .step .num { font-family: var(--label); font-style: italic; font-size: 1rem; color: var(--red-text); margin: 0; }
+  .step h2 { margin: 0.2rem 0 0.75rem; font-size: 1.5rem; }
+  .step .txt { position: sticky; top: 4.5rem; }
+  .step .src, .src { font-size: 0.8rem; color: var(--muted); }
+  .key { list-style: none; padding: 0; margin: 0.75rem 0 0; font-size: 0.9rem; font-family: var(--label); font-style: italic; }
+  .key svg { margin-right: 0.5rem; vertical-align: middle; }
+  .panel { margin: 0; border: 0; border-radius: var(--r-lg); padding: 1rem; background: var(--fill); }
+  .panel svg { width: 100%; height: auto; max-height: 75vh; display: block; }
+  .panel image { image-rendering: auto; }
+  .panel .px { image-rendering: pixelated; }
+  .panel .lab, .panel .legend { font-family: var(--label); font-style: italic; font-size: 0.9rem; line-height: 1.3; margin: 0 0 0.4rem; }
+  .panel .lab { color: var(--red-text); }
+  .panel .legend { color: var(--muted); margin: 0.5rem 0 0; }
+  .panel.pair, .panel.quad { display: grid; gap: 0.75rem 1rem; align-items: start; }
+  .panel.pair { grid-template-columns: 1fr 1fr; }
+  .panel.quad { grid-template-columns: 1fr 1fr; }
+  .panel .legend.wide { grid-column: 1 / -1; }
+  .panel .sub { min-width: 0; }
+  .panel .tick { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-style: italic; font-size: 9px; fill: var(--muted); transform: none; }
+  .panel .bar { stroke: var(--red); stroke-width: 3; }
+  .panel .axis { stroke: var(--ink); stroke-width: 1; }
+  .panel .regs path { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .panel .cloud path { fill: var(--ink); fill-opacity: 0.16; }
+  .panel .spread path { fill: var(--red); }
+  .panel .fill-grey { fill: var(--grey); fill-opacity: 0.6; } .panel .outline { fill: none; stroke: var(--ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .panel .hnd { fill: var(--blue); } .panel .nd { fill: var(--ink); } .panel .ink-fill { fill: var(--ink); }
+  @media (prefers-color-scheme: dark) { .panel .ink-img { filter: invert(1); } }
+  .seq[data-js] .step .panel { opacity: 0; transform: translateY(14px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .seq[data-js] .step[data-in] .panel { opacity: 1; transform: none; }
+  @media (max-width: 52rem) { .step { grid-template-columns: 1fr; padding: 2rem 0; } .step .txt { position: static; } .seq-nav { position: static; } }
+  @media print { .seq[data-js] .step .panel { opacity: 1; transform: none; } .step { break-inside: avoid; } }
+</style>

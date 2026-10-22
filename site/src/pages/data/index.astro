@@ -1,0 +1,153 @@
+---
+import Page from '../../layouts/Page.astro';
+import { readdirSync } from 'node:fs';
+import { glyphs, glyph, sweepOf, noise, noisePair, cards, calibration, edgeLevels, fileSize, fmt, kerning, meta } from '../../lib/data';
+import { cardName, glyphLabel, capital, countWord } from '../../lib/format';
+import { href } from '../../lib/site';
+
+const n = noise(), cal = calibration(), lv = edgeLevels();
+const hist = n.alternative.hist;
+const last = hist.counts.reduce((m, c, i) => (c ? i : m), 0);
+const Hn = last + 3, H = { w: 560, h: 240, l: 44, r: 12, t: 12, b: 40 };
+const cmax = Math.max(...hist.counts);
+const hx = (u: number) => H.l + (u / (Hn * hist.bin_um)) * (H.w - H.l - H.r);
+const hy = (c: number) => H.h - H.b - (c / cmax) * (H.h - H.t - H.b);
+const hticks = Array.from({ length: Math.floor((Hn * hist.bin_um) / 5) + 1 }, (_, i) => i * 5);
+const e = glyph('e');
+const enough = glyphs().filter((r) => r.n >= meta().min_instances).length;
+const { lead } = noisePair();
+const figures = [
+  [String(e.n), `printed e's, from ${e.cards.length} cards`, '/glyphs/e/'],
+  [String(enough), `glyphs with at least ${meta().min_instances} instances`, '/glyphs/'],
+  [`${fmt(lead.single_scan_um)} µm`, `single-scan edge noise, ${fmt(lead.pair_mean_um)} µm for the mean of two views`, '#noise'],
+  [fmt(cal.summary.px_per_mm, 2), 'scanner pixels per millimetre', '#calibration'],
+  [`${fmt(lv.min, 2)}–${fmt(lv.max, 2)}`, `edge level that matched ink area across ${lv.scans} scans`, '#edge-levels'],
+] as const;
+const w = cal.edge_w1090_um;
+const files = [
+  ['glyphs.json', 'Glyph index: name, instances, cards, nodes, edge RMS, IoU'],
+  ['glyphs/{name}.json', 'Per glyph: trace, mean contours 0.1 to 0.9, spread grid, up to 64 instance paths, cutaways'],
+  ['sweep/{name}.json', 'Edge RMS and noise against the number of stacked instances'],
+  ['kerning.json', 'Observed spacing for each adjacent pair, with the designed value'],
+  ['noise.json', 'Comparison of views of the same printed glyph scanned at different angles'],
+  ['calibration.json', 'Scale, isotropy, edge widths from the calibration scans'],
+  ['cards.json', 'Cards, their scans, edge levels and print scale'],
+];
+const gl = readdirSync('data/glyphs').length;
+const rows = glyphs();
+const docs = rows.map((r) => ({ r, d: glyph(r.name), sw: sweepOf(r.name) }));
+const pairs = Object.entries(kerning()).sort((a, z) => z[1].n - a[1].n);
+const sizes: Record<string, string> = {
+  'glyphs.json': `${fileSize('glyphs.json')} B`, 'kerning.json': `${Math.round(fileSize('kerning.json') / 1024)} KB`,
+  'noise.json': `${fileSize('noise.json')} B`, 'calibration.json': `${fileSize('calibration.json')} B`, 'cards.json': `${fileSize('cards.json')} B`,
+};
+---
+<Page title="Data and method" description="Every data file, how to reproduce it, and the limits.">
+  <article class="flow">
+    <p class="kicker">Reference</p>
+    <h1>Data and method</h1>
+    <p class="lede">Every number on this site is read from a file in <span class="mono">site/data</span>. The files are written by <span class="mono">glyphstack.export_site</span>.</p>
+
+    <ul class="figures wide">
+      {figures.map(([big, cap, to]) => (
+        <li><span class="big"><a href={to.startsWith('#') ? to : href(to)}>{big}</a></span><span class="cap">{cap}</span></li>
+      ))}
+    </ul>
+    <p class="proof">These come from one scanner and {Object.keys(cards()).length} pilot cards. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but does not recover finer detail.</p>
+
+    <h2 id="noise">Noise</h2>
+    <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.alternative.pair_rms_um)} µm over {n.alternative.n_pairs} pairs when each scan’s affine is fitted on its own. That gives {fmt(n.alternative.single_scan_um)} µm single-scan noise and {fmt(n.alternative.pair_mean_um)} µm for a pair mean.</p>
+    <p>With scale and shear tied across a card’s two scans the same comparison gives {fmt(n.headline.single_scan_um)} µm and {fmt(n.headline.pair_mean_um)} µm. The untied fit absorbs per-scan placement distortion, which is why the two differ.</p>
+
+    <figure class="hist-fig">
+      <svg class="hist" viewBox={`0 0 ${H.w} ${H.h}`} role="img" aria-labelledby="hs-t hs-d">
+        <title id="hs-t">How far apart the two copies of each printed glyph are</title>
+        <desc id="hs-d">A histogram of the edge distance between two views of each of {hist.n} printed glyphs. The middle pair differs by {fmt(hist.median_um)} micrometres.</desc>
+        {hist.counts.slice(0, Hn).map((c, i) => c > 0 && <rect class="bar" x={hx(i * hist.bin_um) + 1} y={hy(c)} width={hx(hist.bin_um) - hx(0) - 2} height={hy(0) - hy(c)} />)}
+        <line class="axis" x1={H.l} x2={H.w - H.r} y1={hy(0)} y2={hy(0)} />
+        {hticks.map((u) => <text class="axt" x={hx(u)} y={H.h - H.b + 16} text-anchor="middle">{u}</text>)}
+        <text class="axt" x={(H.l + H.w - H.r) / 2} y={H.h - 6} text-anchor="middle">edge distance between the two copies, µm</text>
+        <line class="med" x1={hx(hist.median_um)} x2={hx(hist.median_um)} y1={H.t} y2={hy(0)} />
+      </svg>
+      <figcaption>{hist.n} printed glyphs, each scanned twice. Dashed line: the middle pair, {fmt(hist.median_um)} µm. The RMS over all pairs is {fmt(hist.rms_um)} µm.</figcaption>
+    </figure>
+
+    <h2 id="calibration">Calibration</h2>
+    <p>Ruler ticks on the calibration target give {fmt(cal.summary.px_per_mm, 2)} px/mm, with x and y scales equal to {fmt(cal.summary.scan_anisotropy * 100, 2)} %. Edge widths measured on slanted printed edges range {fmt(Math.min(...w), 0)} to {fmt(Math.max(...w), 0)} µm over {w.length} edges, median {fmt(cal.summary.edge_w1090_um_median, 0)} µm. The scanner pixel is 21 µm, so the blur is several pixels wide.</p>
+
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Ruler fits table">
+      <table>
+        <caption>Scale from each ruler on the calibration target. Scan A has the sheet upright, scan B has it turned 90°.</caption>
+        <thead><tr><th>Scan and paper axis</th><th class="r">Ticks</th><th class="r">px per mm</th><th class="r">Tilt °</th><th class="r">Fit residual px</th></tr></thead>
+        <tbody>{(['a', 'b'] as const).flatMap((s) => (['x', 'y'] as const).map((ax) => { const r = cal.rulers[s][ax]; return <tr><th scope="row">Scan {s.toUpperCase()}, paper {ax}</th><td class="r">{r.ticks}</td><td class="r">{fmt(r.px_per_mm, 3)}</td><td class="r">{fmt(r.tilt_deg, 2)}</td><td class="r">{fmt(r.resid_px, 2)}</td></tr>; }))}</tbody>
+      </table>
+    </div>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Tone steps table">
+      <table>
+        <caption>Grey level read for each printed tone step, 0 is black and 255 is white</caption>
+        <thead><tr><th>Percent black printed</th>{cal.tone_percent_black.map((p) => <th class="r">{p}</th>)}</tr></thead>
+        <tbody><tr><th scope="row">Scan A</th>{cal.tone.a.map((v) => <td class="r">{fmt(v, 0)}</td>)}</tr><tr><th scope="row">Scan B</th>{cal.tone.b.map((v) => <td class="r">{fmt(v, 0)}</td>)}</tr></tbody>
+      </table>
+    </div>
+
+    <h2 id="edge-levels">Edge levels</h2>
+    <p>To reproduce the same pooled ink area, each of the {lv.scans} scans needed its own coverage level, from {fmt(lv.min, 2)} to {fmt(lv.max, 2)}.</p>
+
+    <h2 id="files">Files</h2>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Data files table">
+      <table>
+        <caption>Contents of site/data, {glyphs().length} glyphs, {gl} glyph files</caption>
+        <thead><tr><th>File</th><th>Content</th><th class="r">Size</th></tr></thead>
+        <tbody>{files.map(([f, d]) => <tr><td class="mono">{f}</td><td>{d}</td><td class="r">{sizes[f] ?? ''}</td></tr>)}</tbody>
+      </table>
+    </div>
+    <h2 id="glyphs">Glyphs</h2>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Glyph statistics table">
+      <table>
+        <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick.</caption>
+        <thead><tr><th>Glyph</th><th class="r">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
+        <tbody>{rows.map((r) => <tr><th scope="row"><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.low_confidence ? ' (low confidence)' : ''}</th><td class="r">{r.n}</td><td class="r">{r.cards}</td><td class="r">{r.nodes}</td><td class="r">{fmt(r.edge_rms_um, 2)}</td><td class="r">{fmt(r.iou, 3)}</td><td class="r">{r.recommended_n}</td></tr>)}</tbody>
+      </table>
+    </div>
+
+    <h2 id="stacking">Stacking, glyph by glyph</h2>
+    <p>For each glyph, the trace from the first N instances of one fixed random order, and the N-sweep over random subsets.</p>
+    {docs.map(({ r, d, sw }) => (
+      <details id={`glyph-${r.name}`}>
+        <summary>{glyphLabel(r.char, r.style)}, {r.n} instances</summary>
+        <div class="scroll wide" tabindex="0" role="region" aria-label={`Traces table for ${glyphLabel(r.char, r.style)}`}>
+          <table><caption>Trace from the first N instances of {glyphLabel(r.char, r.style)}</caption>
+            <thead><tr><th class="r">N</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th></tr></thead>
+            <tbody>{d.trace_by_n.map((t) => <tr><td class="r">{t.n}</td><td class="r">{t.cards}</td><td class="r">{t.nodes}</td><td class="r">{t.edge_rms_um === null ? 'n/a' : fmt(t.edge_rms_um, 2)}</td></tr>)}</tbody></table>
+        </div>
+        <div class="scroll wide" tabindex="0" role="region" aria-label={`N-sweep table for ${glyphLabel(r.char, r.style)}`}>
+          <table><caption>N-sweep for {glyphLabel(r.char, r.style)} over random subsets, µm</caption>
+            <thead><tr><th class="r">N</th><th class="r">Edge RMS</th><th class="r">p10</th><th class="r">p90</th><th class="r">Noise model</th></tr></thead>
+            <tbody>{sw.rows.map((t) => <tr><td class="r">{t.n}</td><td class="r">{fmt(t.rms_vs_ref_um, 2)}</td><td class="r">{fmt(t.p10, 2)}</td><td class="r">{fmt(t.p90, 2)}</td><td class="r">{fmt(t.noise_model_um, 2)}</td></tr>)}</tbody></table>
+        </div>
+      </details>
+    ))}
+
+    <h2 id="spacing">Observed spacing</h2>
+    <p>Gaps between adjacent letters measured on the cards, in font units (1 fu is about 3.1 µm), against the designed gap with and without its kern value.</p>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Observed spacing table">
+      <table>
+        <caption>{pairs.length} pairs, most measured first</caption>
+        <thead><tr><th>Pair</th><th class="r">Samples</th><th class="r">Designed gap</th><th class="r">Kern</th><th class="r">Mean deviation before kern</th><th class="r">After kern</th><th class="r">sd</th></tr></thead>
+        <tbody>{pairs.map(([k, v]) => <tr><td class="mono">{k}</td><td class="r">{v.n}</td><td class="r">{fmt(v.designed_gap, 0)}</td><td class="r">{v.kern}</td><td class="r">{fmt(v.mean_dev_nokern)}</td><td class="r">{fmt(v.mean_dev_kern)}</td><td class="r">{fmt(v.sd)}</td></tr>)}</tbody>
+      </table>
+    </div>
+
+    <h2 id="limits">Limits</h2>
+    <p>One scanner. {capital(countWord(Object.keys(cards()).length))} pilot cards. Optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement. Stack-against-design numbers depend on one fitted outline.</p>
+  </article>
+</Page>
+<style is:global>
+  .hist-fig { margin: 1rem 0; }
+  .hist { width: 100%; max-width: 560px; height: auto; display: block; }
+  .hist .bar { fill: var(--ink); fill-opacity: 0.8; }
+  .hist .axis { stroke: var(--ink); stroke-width: 1; }
+  .hist .med { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .hist .axt { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-style: italic; font-size: 14px; fill: var(--muted); }
+  .hist-fig figcaption { font-size: 0.85rem; color: var(--muted); }
+</style>

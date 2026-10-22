@@ -1,0 +1,16 @@
+---
+import Page from '../layouts/Page.astro';
+import { pages } from '../lib/site';
+
+interface Props { path: string }
+const meta = pages.find((p) => p.path === Astro.props.path)!;
+---
+<Page title={meta.title} description={meta.blurb}>
+  <article>
+    <p class="kicker">{meta.milestone ? `Page shell, arrives in ${meta.milestone}` : 'Page shell'}</p>
+    <h1>{meta.title}</h1>
+    <p class="lede">{meta.blurb}</p>
+    <slot />
+    <p class="proof placeholder">This page is a shell. Its content and interactive pieces are not written yet.</p>
+  </article>
+</Page>

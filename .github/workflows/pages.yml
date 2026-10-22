@@ -1,0 +1,57 @@
+# Builds the site and deploys it to GitHub Pages on every push to main.
+# Written but not active until the owner enables Pages for the repository (Settings > Pages > Source: GitHub Actions).
+# The data export is not run here, site/data is committed
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+        working-directory: site
+      - run: npx playwright install --with-deps chromium
+        working-directory: site
+      - run: npx playwright test --project=desktop
+        working-directory: site
+        env:
+          CI: '1'
+      - uses: actions/configure-pages@v5
+        id: pages
+      - run: npm run build
+        working-directory: site
+        env:
+          SITE_URL: ${{ steps.pages.outputs.origin }}
+          SITE_BASE: ${{ steps.pages.outputs.base_path }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

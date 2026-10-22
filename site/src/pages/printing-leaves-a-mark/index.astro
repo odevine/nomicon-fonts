@@ -1,0 +1,96 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyphs, glyph, cards, steps, fmt } from '../../lib/data';
+import { bbox, viewBox, cardName, glyphLabel, capital, countWord } from '../../lib/format';
+import { href } from '../../lib/site';
+import { compact } from '../../../integrations/served-data.mjs';
+
+const e = glyph('e');
+const eb = bbox(e.trace);
+const vb = viewBox(eb, 30);
+// a few printed e's from each card, taken in the order they were exported
+const PER_CARD = 6;
+const byCard = new Map<string, string[]>();
+for (const it of e.instances) {
+  const list = byCard.get(it.card) ?? [];
+  if (list.length < PER_CARD) list.push(compact(it.path, 0.75));
+  byCard.set(it.card, list);
+}
+const rows = [...byCard.entries()].sort((a, z) => a[0].localeCompare(z[0]));
+const ink = steps('e').ink_spread_um;
+
+// print size of each card
+const sizes = Object.entries(cards()).map(([k, v]) => ({ card: k, scale: v.print_scale })).sort((a, z) => z.scale - a.scale);
+
+// how far each glyph's stack sits from the measuring stick, against one scanner pixel
+const g = glyphs().map((r) => ({ ch: r.char, it: r.style === 'italic', v: r.edge_rms_um })).sort((a, z) => a.v - z.v);
+const px = 25400 / 1200;
+const near = g[0].v, far = g[g.length - 1].v;
+const mid = [...g].sort((x, y) => x.v - y.v)[Math.floor(g.length / 2)].v;
+---
+<Page title="Printing leaves a mark" description={`The same letter printed on ${countWord(rows.length)} cards, and what the stack of copies shows that a design does not.`}>
+  <div class="flow">
+    <article>
+      <p class="kicker">Printing leaves a mark</p>
+      <h1>Printing leaves a mark</h1>
+      <p class="lede">Print one letter a hundred times and you get a hundred slightly different letters. The stack keeps that.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="cards-one-letter">
+      <h2 id="cards-one-letter">{capital(countWord(rows.length))} cards, one letter</h2>
+      <p>Every shape below is an <em>e</em> printed on one of {rows.length} cards. They are the same letter of the same typeface, set on the same kind of card stock, and no two are alike.</p>
+      <div class="egrid mid" role="img" aria-label={`Printed e's from ${rows.length} cards, ${PER_CARD} from each, drawn from the scanned data`}>
+        {rows.map(([card, paths]) => (
+          <div class="erow"><span class="ecard">{cardName(card)}</span>
+            <span class="eset">{paths.map((d) => <svg viewBox={vb} aria-hidden="true"><path d={d} fill-rule="evenodd" /></svg>)}</span></div>
+        ))}
+      </div>
+      <p class="cap">Each outline is the 0.5 ink level of one printed e, after the scan is straightened and registered. The cards are named so you can tell the rows apart, the crops are not shown here.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="does">
+      <h2 id="does">What printing does</h2>
+      <p>Ink spreads into the paper, so every edge sits a little outside where the design puts it. In the pilot the printed shapes sit about {fmt(ink, 0)} µm outside the design on each edge. That figure is relative, because it depends on how the scan edge is read, so use it to compare and not as a measurement of the ink itself.</p>
+      <p>The paper’s fibres roughen the edge, and the halftone screen breaks each stroke into dots. That is why a single scan looks dotted along its edges, which <a href={href('/cleaning/')}>the cleaning steps</a> show close up. Stacking many copies averages most of that away, and keeps what every copy shares.</p>
+      <p>The letters are not all the same size either. The text is shrunk to fit its box, so the same typeface prints smaller on some cards than on others.</p>
+      <div class="sizes mid" role="img" aria-label={`Print size of each card as a share of the font's size: ${sizes.map((s) => `${cardName(s.card)} ${fmt(s.scale, 2)}`).join(', ')}`}>
+        {sizes.map((s) => <div class="size-row"><span class="size-name">{cardName(s.card)}</span><span class="size-track"><span class="size-bar" style={`width:${(s.scale / 1.05) * 100}%`}></span></span><span class="size-val">{fmt(s.scale, 2)}</span></div>)}
+      </div>
+      <p class="cap">Printed size of each card's text as a share of the font's design size. Every glyph is put on a common scale before it is stacked.</p>
+    </section>
+
+    <section aria-labelledby="close">
+      <h2 id="close">How close the stack is to the design</h2>
+      <p>The stacked letters are not the designed font, but they are close. Each letter below is fitted to the font by size and position only, and the dot shows how far the two outlines are apart at the edge, on average. Every letter is closer than one scanner pixel.</p>
+      <p class="stat-line">Across {g.length} letters the average edge distance runs from <strong>{fmt(near)} µm</strong> to <strong>{fmt(far)} µm</strong>, with a middle of <strong>{fmt(mid)} µm</strong>. One scanner pixel is {fmt(px, 0)} µm.</p>
+      <p>The font is a measuring stick here. It is never drawn on this site, only the distances to it.</p>
+    </section>
+
+    <section aria-labelledby="unknown">
+      <h2 id="unknown">What we do not know yet</h2>
+      <p>The leftover difference between the stack and the design is small, but it is not zero. It may be a real effect of printing, such as corners and thin ends printing rounder than designed, or it may come from how the design was fitted. We have not tested which.</p>
+      <p>The printed letters also look about two percent narrower than they are tall, compared with a scanner that measures equally in both directions. Whether that comes from the printing or from the way we compare is not established.</p>
+      <p>And the ink spread above is relative. Measuring it absolutely needs a known printed line on the same card stock.</p>
+    </section>
+
+    <section aria-labelledby="shapes">
+      <h2 id="shapes">Where the shapes come from</h2>
+      <p class="proof">The history of the typeface and how it came to be on these cards is still to be written, with sources.</p>
+    </section>
+  </div>
+</Page>
+<style is:global>
+  .egrid { margin: 1.5rem 0; display: grid; gap: 0.6rem; }
+  .erow { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1rem; align-items: center; }
+  .ecard { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
+  .eset { display: grid; grid-template-columns: repeat(6, minmax(0, 4.5rem)); gap: 0.5rem; }
+  .eset svg { width: 100%; height: auto; display: block; }
+  .eset path { fill: var(--ink); }
+  .sizes { margin: 1rem 0 0.5rem; display: grid; gap: 0.35rem; }
+  .size-row { display: grid; grid-template-columns: 9rem minmax(0, 1fr) 3rem; gap: 1rem; align-items: center; font-size: 0.85rem; }
+  .size-name { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
+  .size-track { height: 0.7rem; border-radius: 99px; overflow: hidden; background: color-mix(in srgb, var(--ink) 8%, var(--paper)); }
+  .size-bar { display: block; height: 100%; background: var(--ink); }
+  .size-val { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-size: 0.85rem; text-align: right; }
+  @media (max-width: 40rem) { .eset { grid-template-columns: repeat(3, 1fr); } .erow, .size-row { grid-template-columns: 6rem minmax(0, 1fr) 2.6rem; gap: 0.6rem; } .erow { grid-template-columns: 6rem minmax(0, 1fr); } }
+</style>

@@ -1,0 +1,84 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyphs, glyph, meta } from '../../lib/data';
+import { href } from '../../lib/site';
+import { bbox, glyphLabel } from '../../lib/format';
+import core from '../../lib/latin-core.json';
+
+const rows = glyphs();
+const m = meta();
+const docs = new Map(rows.map((r) => [r.name, glyph(r.name)]));
+const boxes = new Map([...docs].map(([name, d]) => [name, bbox(d.trace)]));
+const faces = [['regular', 'Regular'], ['italic', 'Italic']].filter(([s]) => rows.some((r) => r.style === s));
+const byFace = Object.fromEntries(faces.map(([s]) => [s, new Map(rows.filter((r) => r.style === s).map((r) => [r.char, r]))]));
+
+// every tile is drawn at one scale on one baseline: the window is as tall as the tallest scanned glyph needs and as wide as the widest
+const all = [...boxes.values()];
+const y0 = Math.min(...all.map((b) => b.y0)) - 20, y1 = Math.max(...all.map((b) => b.y1)) + 20;
+const W = Math.max(...all.map((b) => b.x1 - b.x0)) + 40;
+const view = (b: { x0: number; x1: number }) => `${((b.x0 + b.x1) / 2 - W / 2).toFixed(1)} ${y0.toFixed(1)} ${W.toFixed(1)} ${(y1 - y0).toFixed(1)}`;
+
+// the sheet is GF Latin Core, less the spaces and the combining accents, which have nothing to draw on their own
+const cp = (ch: string) => ch.codePointAt(0)!;
+const is = (re: RegExp, ch: string) => re.test(ch);
+const sheet = [...new Set([...core.codepoints.map((c) => String.fromCodePoint(c)).filter((ch) => !is(/^(\p{Zs}|\p{Mn})$/u, ch)), ...rows.map((r) => r.char)])];
+const left = core.codepoints.length - sheet.filter((ch) => core.codepoints.includes(cp(ch))).length;
+const collate = new Intl.Collator('en');
+const groups = [
+  { title: 'Capitals', test: (ch: string) => is(/^\p{Lu}$/u, ch) && cp(ch) < 128, byLetter: false },
+  { title: 'Lowercase', test: (ch: string) => is(/^\p{Ll}$/u, ch) && cp(ch) < 128, byLetter: false },
+  { title: 'Figures', test: (ch: string) => is(/^\p{Nd}$/u, ch), byLetter: false },
+  { title: 'More capitals', test: (ch: string) => is(/^\p{Lu}$/u, ch), byLetter: true },
+  { title: 'More lowercase', test: (ch: string) => is(/^\p{Ll}$/u, ch), byLetter: true },
+  { title: 'Punctuation and symbols', test: () => true, byLetter: false },
+];
+const taken = new Set<string>();
+const sections = groups.map((g) => {
+  const chars = sheet.filter((ch) => !taken.has(ch) && g.test(ch));
+  chars.forEach((ch) => taken.add(ch));
+  chars.sort((a, z) => (g.byLetter ? collate.compare(a, z) : cp(a) - cp(z)));
+  return { title: g.title, chars };
+});
+const hex = (ch: string) => `U+${cp(ch).toString(16).toUpperCase().padStart(4, '0')}`;
+// with one face the group titles are the second level, with two they sit under the face's heading
+const Group = faces.length > 1 ? 'h3' : 'h2';
+---
+<Page title="Glyphs" description="The character set, one page per scanned glyph, laid out as a character sheet.">
+  <p class="kicker">Character sheet</p>
+  <h1>Glyphs</h1>
+  <p class="lede">The sheet follows the Latin Core character set from Google Fonts. Each scanned glyph links to its own page, and an empty box is a character still to come.</p>
+  <p class="legend-row"><span class="sw-ink">scanned</span><span class="sw-low">low confidence</span><span class="sw-empty">not scanned yet</span></p>
+  <p class="src">Low confidence means fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for. The {sheet.length} cells leave out the {left} spaces and combining accents of the set.</p>
+  {faces.map(([face, title]) => (
+    <section class="face wide" aria-labelledby={`face-${face}`}>
+      {faces.length > 1 ? <h2 id={`face-${face}`}>{title}</h2> : <h2 class="vh" id={`face-${face}`}>{title}</h2>}
+      <p class="src">{byFace[face].size} of {sheet.length} characters scanned.</p>
+      {sections.filter((s) => s.chars.length).map((s) => (
+        <div class="group">
+          <Group>{s.title}</Group>
+          <ul class="glyphmap">
+            {s.chars.map((ch) => {
+              const row = byFace[face].get(ch);
+              if (!row) {
+                return <li class="blank" title={hex(ch)}><span class="vh">{ch}, {hex(ch)}, not scanned yet</span><small class="n" aria-hidden="true">N 0</small><span class="slot" aria-hidden="true"></span><small class="u" aria-hidden="true">{hex(ch)}</small></li>;
+              }
+              const d = docs.get(row.name)!;
+              return (
+                <li>
+                  <a href={href(`/glyphs/${row.name}/`)} class:list={[{ low: row.low_confidence }]}>
+                    <small class="n">N {d.n}</small>
+                    <svg viewBox={view(boxes.get(row.name)!)} role="img" aria-label={`Trace of ${glyphLabel(d.char, d.style)}`}>
+                      <path class="ink" d={d.trace} fill-rule="evenodd" />
+                    </svg>
+                    <small class="u">{hex(ch)}</small>
+                    {row.low_confidence && <span class="vh">, low confidence</span>}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </section>
+  ))}
+</Page>

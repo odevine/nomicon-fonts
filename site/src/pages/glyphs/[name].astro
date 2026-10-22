@@ -1,0 +1,39 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyphs, glyph, meta } from '../../lib/data';
+import { bbox, viewBox, PAD, glyphLabel, cardName } from '../../lib/format';
+import { href } from '../../lib/site';
+
+export function getStaticPaths() {
+  return glyphs().map((g) => ({ params: { name: g.name } }));
+}
+const m = meta();
+const d = glyph(Astro.params.name!);
+// the flag lives on the glyph's row in glyphs.json, not in its own file
+const low = glyphs().find((g) => g.name === d.name)?.low_confidence;
+const b = bbox(d.trace);
+const label = glyphLabel(d.char, d.style);
+const cloudLevels = ['0.1', '0.3', '0.5', '0.7', '0.9'];
+---
+<Page title={`Glyph ${label}`} description={`Printed shape of ${label}, stacked from ${d.n} instances.`}>
+  <p class="kicker">Glyph · {d.unicode}</p>
+  <h1>{label}</h1>
+  {low && <p class="proof">Low confidence: {d.n} instances from {d.cards.length} cards, fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for.</p>}
+  <p class="src">Traced from {d.n} printed instances on {d.cards.length} cards. <a href={`${href('/data/')}#glyph-${d.name}`}>The numbers for this glyph</a> are on the data page.</p>
+  <stack-view class="wide" data-glyph={d.name} data-knee={`${m.min_instances},${m.confident_instances}`} data-base={href('/data/')} data-data-page={href('/data/')}>
+    <figure class="specimen">
+      <svg viewBox={viewBox(b, PAD)} role="img" aria-labelledby="t d">
+        <title id="t">Traced outline of {label}</title>
+        <desc id="d">The traced outline of {label} over the mean coverage cloud of {d.n} stacked printed instances, in font units, {d.nodes} Bézier nodes.</desc>
+        <g class="cloud-static">{cloudLevels.map((l) => <path d={d.mean[l]} fill-rule="evenodd" />)}</g>
+        <path class="ink-line" d={d.trace} fill-rule="evenodd" />
+      </svg>
+      <figcaption>The trace over the mean cloud of {d.n} printed instances. The interactive Stack replaces this figure when scripts are available.</figcaption>
+    </figure>
+  </stack-view>
+</Page>
+<script>import '../../scripts/stack';</script>
+<style is:global>
+  .specimen .cloud-static path { fill: var(--grey); fill-opacity: 0.25; }
+  .specimen .ink-line { fill: none; stroke: var(--ink); stroke-width: 2.4; vector-effect: non-scaling-stroke; }
+</style>

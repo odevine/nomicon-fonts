@@ -1,0 +1,35 @@
+[project]
+name = "nomicon-fonts"
+version = "0.1.0"
+description = "Measures the type printed on Magic cards from flatbed scans and traces it into outlines"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "opencv-python-headless",
+    "pillow",
+    "pymupdf",
+    "openpyxl",
+    "fonttools",
+    "matplotlib",
+    "potracer",
+    "contourpy",
+    "rich",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["glyphstack"]
+
+[tool.setuptools.package-data]
+glyphstack = ["profiles/*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

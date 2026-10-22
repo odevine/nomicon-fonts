@@ -1,0 +1,47 @@
+---
+import Page from '../layouts/Page.astro';
+import { glyph, cards } from '../lib/data';
+import { bbox, viewBox, PAD } from '../lib/format';
+import { href } from '../lib/site';
+
+const e = glyph('e');
+const b = bbox(e.trace);
+const cardCount = Object.keys(cards()).length;
+---
+<Page title="Nomicon Fonts">
+  <script is:inline>if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('hero-js');</script>
+
+  <hero-stack class="full" data-glyph="e" data-base={href('/data/')}>
+    <div class="hero-bg" aria-hidden="true">
+      <svg viewBox={viewBox(b, PAD)} preserveAspectRatio="xMidYMid meet">
+        <path class="ink" d={e.trace} fill-rule="evenodd" />
+      </svg>
+    </div>
+    <div class="hero-run">
+      <section class="intro">
+        <h1>The letters printed on trading cards, measured one copy at a time</h1>
+      </section>
+      <div class="hero-spacer"></div>
+      <div class="down-wrap">
+        <a class="down" href="#why" aria-label="Scroll down to why this exists">
+          <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M4 8l8 8 8-8" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        </a>
+      </div>
+    </div>
+  </hero-stack>
+
+  <section class="why" aria-labelledby="why">
+    <h2 id="why">Why this exists</h2>
+    <p>The text on a Magic card is set small and read constantly, and few people stop to look at the shapes of its letters. Those letters are printed in ink on card stock, so every copy is a little different. Ink spread rounds the corners, paper fibre roughens the edges, and the halftone screen breaks each stroke into dots.</p>
+    <p>This project scans real cards at 1200 ppi, stacks many printed copies of each letter, and traces what the stack shows. The aim is to record the printed shape, not to match the designed font. Where one copy differs from the others, that difference is part of the record.</p>
+    <p>The result is meant to become a typeface, Nomicon Rules, in regular and italic. This site shows how it is made: how a halftone scan becomes one clean letter, and how the outline settles as more copies are stacked.</p>
+    <p class="proof placeholder">Draft copy for the owner to approve. It makes no claims about the typeface’s history. A verified history of the face is still to come.</p>
+    <ul class="doors">
+      <li><a href={href('/cleaning/')}><strong>How one letter is cleaned</strong><span>Ten steps from a halftone scan to a traced shape.</span></a></li>
+      <li><a href={href('/glyphs/e/')}><strong>Stack the letters</strong><span>Trace a glyph from more and more printed copies.</span></a></li>
+      <li><a href={href('/data/')}><strong>The numbers and the limits</strong><span>This is a pilot of {cardCount} cards and one scanner. The data page has the detail.</span></a></li>
+    </ul>
+    <p class="src" data-hero-note>The letter e behind this page is the trace of {e.n} printed instances from {e.cards.length} cards.</p>
+  </section>
+</Page>
+<script>import '../scripts/hero';</script>

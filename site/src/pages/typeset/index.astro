@@ -1,0 +1,47 @@
+---
+import Page from '../../layouts/Page.astro';
+import { glyph, cards } from '../../lib/data';
+import { layout, lineHeight } from '../../lib/compose';
+import { spacingTable } from '../../../integrations/spacing.mjs';
+import { href } from '../../lib/site';
+
+const sp = spacingTable();
+const DEFAULT = 'yet a proud sailor can hunt.';
+const WIDTH = 14000;
+const lay = layout(DEFAULT, sp, 'observed', WIDTH);
+const lh = lineHeight(sp);
+const traces = Object.fromEntries(Object.entries(sp.glyphs).map(([ch, g]) => [ch, glyph(g.name).trace]));
+const italic = Object.keys(sp.glyphs).filter((k) => k.startsWith('i:')).length;
+const regular = Object.keys(sp.glyphs).length - italic;
+---
+<Page title="Typeset" description="Set your own text with real printed letters, spaced the way the cards space them.">
+  <p class="kicker">Typeset</p>
+  <h1>Set something</h1>
+  <p class="lede">Type below. Each letter is a real printed one, and each repeat of a letter is a different printed copy.{italic > 0 && ' Text between asterisks is set in the italic face used for flavor and reminder text.'}</p>
+  <type-setter class="wide" data-base={href('/data/')} data-default={DEFAULT}>
+    <figure class="set-out">
+      <svg class="set-svg" viewBox={`0 0 ${lay.width.toFixed(0)} ${lay.lines.length * lh}`} role="img" aria-labelledby="ts-t ts-d">
+        <title id="ts-t">{DEFAULT}</title>
+        <desc id="ts-d">The phrase set in the traced mean glyphs with the spacing observed on the cards.</desc>
+        {lay.lines.map((ln, li) => ln.filter((c) => !c.space && c.known).map((c) => <g transform={`translate(${c.x.toFixed(1)} ${li * lh + sp.metrics.ascent})`}><path d={traces[c.ch]} fill-rule="evenodd" /></g>))}
+      </svg>
+      <figcaption>Without scripts the phrase is set in the mean glyphs. The page lets you change the text.</figcaption>
+    </figure>
+  </type-setter>
+  <p class="proof">Only {regular} regular{italic > 0 && ` and ${italic} italic`} glyphs are scanned so far, from {Object.keys(cards()).length} pilot cards. Anything else shows as a dashed cell. The downloaded image is a picture of the set text, not the outlines.</p>
+</Page>
+<script>import '../../scripts/typeset';</script>
+<style is:global>
+  .setter textarea { width: 100%; font: inherit; font-size: 1.1rem; background: var(--fill); color: var(--ink); border: 0; border-radius: var(--r-md); padding: 0.8rem 1.1rem; resize: vertical; }
+  .setter .samples { font-size: 0.85rem; margin: 0.6rem 0 1rem; }
+  .setter .samples .btn { margin: 0 0.4rem 0.4rem 0; }
+  .setter-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem 2rem; align-items: start; }
+  .setter-controls .toggles { margin: 0; }
+  .setter .actions { margin: 0.6rem 0 0; display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .set-out { margin: 2rem 0 0.5rem; background: var(--fill); border-radius: var(--r-lg); padding: 1.5rem 1.75rem; }
+  .set-svg { display: block; width: 100%; height: auto; }
+  .set-svg path { fill: var(--ink); }
+  .set-svg .ghost rect { fill: none; stroke: var(--ink); stroke-opacity: 0.65; stroke-width: 9; stroke-dasharray: 26 18; }
+  .set-out figcaption { font-size: 0.8rem; color: var(--muted); }
+</style>
