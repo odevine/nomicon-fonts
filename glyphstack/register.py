@@ -34,21 +34,28 @@ def place(img, shape):
     return out
 
 
+def canvas_size(shapes, margin=MARGIN):
+    """The common canvas of a glyph's images from their shapes"""
+    # a high percentile rather than the largest, so one oversized unit does not enlarge every canvas of its glyph
+    return int(np.percentile([s[0] for s in shapes], 98)) + 2 * margin, int(np.percentile([s[1] for s in shapes], 98)) + 2 * margin
+
+
+def on_canvas(img, size):
+    """An image placed on a canvas of the given size with its centre of mass at the canvas centre"""
+    Hc, Wc = size
+    cy, cx = ndi.center_of_mass(img)
+    oy, ox = int(round(Hc / 2 - cy)), int(round(Wc / 2 - cx))
+    c = np.zeros((Hc, Wc), np.float32)
+    h, w = img.shape
+    ys0, xs0, ys1, xs1 = max(oy, 0), max(ox, 0), min(oy + h, Hc), min(ox + w, Wc)
+    c[ys0:ys1, xs0:xs1] = img[ys0 - oy : ys1 - oy, xs0 - ox : xs1 - ox]
+    return c
+
+
 def com_canvas(imgs, margin=MARGIN):
     """Places every image on a common canvas with its centre of mass at the canvas centre"""
-    # a high percentile rather than the largest, so one oversized unit does not enlarge every canvas of its glyph
-    Hc = int(np.percentile([i.shape[0] for i in imgs], 98)) + 2 * margin
-    Wc = int(np.percentile([i.shape[1] for i in imgs], 98)) + 2 * margin
-    out = []
-    for i in imgs:
-        cy, cx = ndi.center_of_mass(i)
-        oy, ox = int(round(Hc / 2 - cy)), int(round(Wc / 2 - cx))
-        c = np.zeros((Hc, Wc), np.float32)
-        h, w = i.shape
-        ys0, xs0, ys1, xs1 = max(oy, 0), max(ox, 0), min(oy + h, Hc), min(ox + w, Wc)
-        c[ys0:ys1, xs0:xs1] = i[ys0 - oy : ys1 - oy, xs0 - ox : xs1 - ox]
-        out.append(c)
-    return out
+    size = canvas_size([i.shape for i in imgs], margin)
+    return [on_canvas(i, size) for i in imgs]
 
 
 def ecc_shift(ref, img):
@@ -75,14 +82,44 @@ def warp_to(ref, img, w):
     return cv2.warpAffine(img, w, (ref.shape[1], ref.shape[0]), flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP, borderValue=0).clip(0, 1)
 
 
+def register_shifts(load, n, shapes, iters=3, batch=64):
+    """The canvas size, each image's translation and the mean that register() arrives at, holding one batch of images at a time
+
+    load(i) gives image i, shapes are the images' shapes. Each image is loaded once per pass, iters + 1 times in all
+    """
+    size = canvas_size(shapes)
+    canvas = lambda i: on_canvas(load(i), size)
+    batches = [range(b, min(b + batch, n)) for b in range(0, n, batch)]
+    # summed in order in float32, which gives the same mean as np.mean over the stacked images
+    acc = np.zeros(size, np.float32)
+    for b in batches:
+        for c in pmap(canvas, b):
+            acc += c
+    ref = acc / n
+    for _ in range(iters):
+        acc, shifts = np.zeros(size, np.float32), []
+        for b in batches:
+            for w, r in pmap(lambda i: _shift_and_warp(ref, canvas(i)), b):
+                shifts.append(w)
+                acc += r
+        ref = acc / n
+    return size, shifts, ref
+
+
+def _shift_and_warp(ref, c):
+    w = ecc_shift(ref, c)
+    return w, warp_to(ref, c, w)
+
+
+def registered(img, size, w):
+    """One image as register_shifts placed it, from its shift"""
+    return warp_to(np.empty(size, np.float32), on_canvas(img, size), w)
+
+
 def register(imgs, iters=3):
     """Aligns images by centre of mass and then by translation ECC against the running mean"""
-    cs = com_canvas(imgs)
-    ref = np.mean(cs, 0)
-    for _ in range(iters):
-        reg = pmap(lambda c: warp_to(ref, c, ecc_shift(ref, c)), cs)
-        ref = np.mean(reg, 0)
-    return reg
+    size, shifts, _ = register_shifts(imgs.__getitem__, len(imgs), [i.shape for i in imgs], iters)
+    return pmap(lambda k: registered(imgs[k], size, shifts[k]), range(len(imgs)))
 
 
 def affine_apply(u, M2):
@@ -96,6 +133,19 @@ def affine_apply(u, M2):
     return cv2.warpAffine(u2, Wm, (W, H), flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP, borderValue=0).clip(0, 1)
 
 
+def _rect_geometry(u, scale, M2):
+    f = UP / scale
+    h, w = u["cov"].shape
+    hu, wu = int(round(h * f)), int(round(w * f))
+    pad = 4 + int(np.ceil(max(hu, wu) * np.abs(np.asarray(M2, float) - np.eye(2)).max()))
+    return f, pad, (hu + 2 * pad, wu + 2 * pad)
+
+
+def rectified_shape(u, scale, M2):
+    """The shape rectify() gives, without resampling"""
+    return _rect_geometry(u, scale, M2)[2]
+
+
 def rectify(u, scale, M2, to_up=None):
     """A unit resampled once onto the 4x grid at the card's print scale and rectified by M2, the same image as
     `affine_apply(upsample(u["cov"], scale), M2)` from a single cubic warp
@@ -103,12 +153,8 @@ def rectify(u, scale, M2, to_up=None):
     When the unit carries native coverage (`ncov`, `nbox`) from a turned scan, the warp reads the native pixels
     through `to_up`, the scan's map from its native crop to the upright crop, so the turn costs no extra resample
     """
-    f = UP / scale
-    h, w = u["cov"].shape
-    hu, wu = int(round(h * f)), int(round(w * f))
+    f, pad, (H, W) = _rect_geometry(u, scale, M2)
     M2 = np.asarray(M2, float)
-    pad = 4 + int(np.ceil(max(hu, wu) * np.abs(M2 - np.eye(2)).max()))
-    H, W = hu + 2 * pad, wu + 2 * pad
     c = np.array([(W - 1) / 2, (H - 1) / 2])
     # output pixel -> upsampled unit pixel -> unit box pixel
     T = np.hstack([M2 / f, ((c - M2 @ c - pad + 0.5) / f - 0.5)[:, None]])

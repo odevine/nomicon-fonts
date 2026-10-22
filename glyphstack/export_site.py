@@ -5,17 +5,15 @@ the export is a few short cutaways clipped around the spots where the stack diff
 """
 import argparse
 import json
-import pickle
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from . import font as fnt
-from . import fontfit, kerning, site_crops, styles, sweep, target
+from . import fontfit, kerning, site_crops, stack, styles, sweep, target
 from .contours import UM_PER_PX, contours_at
 from .log import Progress, add_args, announce, log, start, timed
-from .stack import fname
 
 LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 SIMPLIFY_FU = 0.5
@@ -24,6 +22,8 @@ CUTAWAY_RADIUS_FU = 70
 CUTAWAY_MAX_FRACTION = 0.2
 CUTAWAY_SEPARATION_FU = 160
 MAX_INSTANCES = 64
+# the noise sweep runs on at most this many instances, its curve has flattened long before
+SWEEP_MAX = 512
 SAMPLE_SEED = 2026
 # a glyph with fewer instances or cards than this is marked low confidence
 CONFIDENT_INSTANCES = 20
@@ -112,21 +112,23 @@ def trace_series(stack, rows, fit, g, p, sd=None):
     """The glyph traced from the first N instances of one fixed random order, for N in SERIES_N and the full stack
 
     Each entry is the same trace the full stack gets, so the page can show how the outline settles as N grows.
-    sd is the glyph's placed distance field, shared by every N
+    sd is the glyph's placed distance field, shared by every N. Only the instances of the largest N below the
+    full stack are read
     """
     if sd is None:
         sd = fontfit.placed_distance(g, p, stack["mean"].shape)
-    inst = stack["inst"].astype(np.float32)
-    n_all = len(inst)
+    n_all = len(stack["inst"])
     order = np.random.default_rng(SAMPLE_SEED).permutation(n_all)
+    ks = sorted({k for k in SERIES_N if k < n_all})
+    inst = stack["inst"].take(order[: ks[-1]]) if ks else None
     out = []
-    for k in sorted({k for k in SERIES_N if k < n_all} | {n_all}):
+    for k in ks + [n_all]:
         first = order[:k]
         cards = len({rows[i]["card"] for i in first})
         if k == n_all:
             out.append(dict(n=k, cards=cards, trace=fit["trace"], nodes=fit["nodes"], edge_rms_um=round(fit["rms"], 3)))
             continue
-        m = inst[first].mean(0)
+        m = inst[:k].mean(0)
         d, nodes, _ = fontfit.trace(m, p)
         c = contours_at(m, 0.5)
         rms = None if not c else round(fontfit.edge_stats(g, p, m, c, sd)[0], 3)
@@ -134,30 +136,36 @@ def trace_series(stack, rows, fit, g, p, sd=None):
     return out
 
 
-def export_glyph(key, stack, rows, fit, g, p, ref, ncut, draws, tol=SIMPLIFY_FU, max_instances=MAX_INSTANCES, sd=None):
-    """The JSON document of one glyph, from its glyph key"""
+def export_glyph(key, stack, rows, fit, g, p, ref, ncut, draws, tol=SIMPLIFY_FU, max_instances=MAX_INSTANCES, sd=None, sweep_max=SWEEP_MAX):
+    """The JSON document of one glyph and its sweep, from its glyph key
+
+    stack["inst"] is the glyph's chunks.Store, read only for the instances that are exported or swept
+    """
     ch, style = styles.char_of(key), styles.style_of(key)
     mean = stack["mean"]
     inst_rows = [r for r in rows if r["char"] == key and r["kept"]]
-    inst = stack["inst"].astype(np.float32)
-    assert len(inst_rows) == len(inst), (key, len(inst_rows), len(inst))
-    # the stack, sweep and statistics use every instance, only the exported per-instance paths are sampled
-    pick = np.arange(len(inst))
-    if max_instances and len(inst) > max_instances:
-        pick = np.sort(np.random.default_rng(SAMPLE_SEED).choice(len(inst), max_instances, replace=False))
+    n = len(stack["inst"])
+    assert len(inst_rows) == n, (key, len(inst_rows), n)
+    # the stack and statistics use every instance, the exported per-instance paths and the sweep a sample
+    pick = np.arange(n)
+    if max_instances and n > max_instances:
+        pick = np.sort(np.random.default_rng(SAMPLE_SEED).choice(n, max_instances, replace=False))
     instances = []
-    for k in pick:
-        r, a = inst_rows[k], inst[k]
+    for k, a in zip(pick, stack["inst"].take(pick)):
+        r = inst_rows[k]
         instances.append(dict(
             id=styles.instance_id(key, k), card=r["card"], scans=r["scans"], pair_id=r["pair_id"], edge_level=[round(v, 3) for v in r["edge_level"]], halo_px=r["halo_px"][0],
             card_scale=round(r["card_scale"], 4), print_scale=r["print_scale"], deviation_um=None if r["deviation_um"] is None else round(r["deviation_um"], 2),
             loo_iou=round(r["loo_iou"], 4), path=path_d(contours_at(a, 0.5), p, tol),
         ))
     mean_c = contours_at(mean, 0.5)
-    sw = sweep.sweep_glyph(inst, ref, draws)
+    swept = np.arange(n)
+    if sweep_max and n > sweep_max:
+        swept = np.sort(np.random.default_rng(SAMPLE_SEED + 1).choice(n, sweep_max, replace=False))
+    sw = dict(sweep.sweep_glyph(stack["inst"].take(swept), ref, draws), instances_swept=len(swept))
     return dict(
         name=styles.glyph_name(key), char=ch, unicode=f"U+{ord(ch):04X}", style=style, adv=fit["adv"], n=fit["n"], cards=stack["cards"], trace=fit["trace"], nodes=fit["nodes"],
-        instances_total=len(inst), instances_exported=len(pick), contours=fit["nc"], edge_rms_um=round(fit["rms"], 3), iou=round(fit["iou"], 4), recommended_n=sw["recommended_n"],
+        instances_total=n, instances_exported=len(pick), contours=fit["nc"], edge_rms_um=round(fit["rms"], 3), iou=round(fit["iou"], 4), recommended_n=sw["recommended_n"],
         mean={f"{lv:.1f}": path_d(contours_at(mean, lv), p, tol) for lv in LEVELS}, spread=spread_grid(stack["sd"], p), instances=instances,
         cutaways=cutaways(g, p, mean_c, ncut), trace_by_n=trace_series(stack, inst_rows, fit, g, p, sd),
     ), sw
@@ -194,17 +202,6 @@ def calibration_doc(c):
     return dict(summary=c["summary"], rulers={s: c[s]["rulers"] for s in ("a", "b")}, edge_w1090_um=sorted(round(w, 2) for w in widths), tone=c["tone"], tone_percent_black=list(range(0, 101, 10)))
 
 
-def load_stacks(folder):
-    """Reads stacks.npz and manifest.json from a session folder"""
-    Z = np.load(folder / "stacks.npz")
-    man = json.loads((folder / "manifest.json").read_text())
-    stacks = {}
-    for ch, m in man["glyphs"].items():
-        k = fname(ch)
-        stacks[ch] = dict(mean=Z[f"{k}__mean"], sd=Z[f"{k}__sd"], inst=Z[f"{k}__inst"], n=m["n"], cards=m["cards"])
-    return stacks, man
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("session", help="folder written by glyphstack.session")
@@ -218,6 +215,7 @@ def main():
     ap.add_argument("--compare-session", help="a second session folder run with --no-tie, its noise is listed beside the headline figure")
     ap.add_argument("--scans", help="folder with the session's scan PNGs, writes the raw crops and step images for the Stack's pixel layers and Scan to Glyph, skipped when not given")
     ap.add_argument("--draws", type=int, default=40, help="random subsets per N in the sweep")
+    ap.add_argument("--sweep-max", type=int, default=SWEEP_MAX, help="run the sweep on at most this many randomly chosen instances per glyph, 0 for all")
     add_args(ap)
     a = ap.parse_args()
     session, out = Path(a.session), Path(a.out)
@@ -225,7 +223,7 @@ def main():
     start(a, session, "export_site")
     (out / "glyphs").mkdir(parents=True, exist_ok=True)
     (out / "sweep").mkdir(exist_ok=True)
-    stacks, man = load_stacks(session)
+    stacks, man = stack.load(session)
     rec = man.get("profile", {})
     # the session's own profile file when it still exists, else the built-in profile of the same name
     prof = target.use(a.profile or (rec["path"] if rec and Path(rec["path"]).exists() else rec.get("name", target.DEFAULT)))
@@ -247,7 +245,7 @@ def main():
         p = np.array(fit["p"])
         sd = fontfit.placed_distance(g, p, stacks[key]["mean"].shape)
         ref = fontfit.reference_contours(g, p, sd.shape, sd)
-        doc, sw = export_glyph(key, stacks[key], man["instances"], fit, g, p, ref, a.cutaways, a.draws, a.simplify, a.max_instances, sd)
+        doc, sw = export_glyph(key, stacks[key], man["instances"], fit, g, p, ref, a.cutaways, a.draws, a.simplify, a.max_instances, sd, a.sweep_max)
         name = doc["name"]
         (out / "glyphs" / f"{name}.json").write_text(json.dumps(doc, separators=(",", ":")))
         (out / "sweep" / f"{name}.json").write_text(json.dumps(sw, separators=(",", ":")))
@@ -256,10 +254,8 @@ def main():
         prog.step(repr(key))
     (out / "glyphs.json").write_text(json.dumps(index, indent=1))
 
-    # kerning from the cached per-scan units
-    scans = {}
-    for f in (session / "work" / "units").glob("*.pkl"):
-        scans[f.stem] = pickle.load(f.open("rb"))
+    # kerning from the cached per-scan units, read one scan at a time
+    scans = stack.ScanUnits(session)
     levels = {n: s["edge_level"] for n, s in man["scans"].items()}
     rows = kerning.measure_pairs(scans, levels, man["card_S"], font, shared[0], shared[5])
     (out / "kerning.json").write_text(json.dumps(kerning.summarise(rows), separators=(",", ":")))

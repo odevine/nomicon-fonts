@@ -138,7 +138,7 @@ def main():
     fonts = {st: font.load_font(p) for st, p in font_paths.items()}
     with timed("extraction and labelling"):
         scans = extract_all(rows, out / "work", font_paths, a.workers)
-    result = stack.build(scans, out / "work", iterations=a.iterations, tie=not a.no_tie)
+    result = stack.build(scans, out / "work", iterations=a.iterations, tie=not a.no_tie, stacks_dir=out / "stacks")
     result["profile"] = dict(name=prof.name, path=prof.path, sha256=prof.sha256)
     stack.save(result, out)
     with timed("tracing"):

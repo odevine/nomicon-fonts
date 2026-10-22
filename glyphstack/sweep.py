@@ -19,6 +19,14 @@ def grid(n):
     return sorted(set(ns + [n]))
 
 
+def _mean(inst, ix):
+    """inst[ix].mean(0) without copying the subset, summed in the same order so the result is the same"""
+    acc = np.zeros(inst.shape[1:], np.float32)
+    for i in ix:
+        acc += inst[i]
+    return acc / len(ix)
+
+
 def _rms_um(a, b):
     ca, cb = contours_at(a, 0.5), contours_at(b, 0.5)
     if not ca or not cb:
@@ -39,11 +47,11 @@ def sweep(inst, reference, draws=40, seed=2026):
     rows = []
     for N in grid(n):
         subsets = [rng.choice(n, N, replace=False) for _ in range(1 if N == n else draws)]
-        rms = np.array(pmap(lambda ix: float(np.sqrt((sym_dev(contours_at(inst[ix].mean(0), 0.5) or [np.zeros((1, 2))], reference) ** 2).mean()) * UM_PER_PX), subsets))
+        rms = np.array(pmap(lambda ix: float(np.sqrt((sym_dev(contours_at(_mean(inst, ix), 0.5) or [np.zeros((1, 2))], reference) ** 2).mean()) * UM_PER_PX), subsets))
         row = dict(n=N, rms_vs_ref_um=float(rms.mean()), p10=float(np.percentile(rms, 10)), p90=float(np.percentile(rms, 90)))
         if 2 * N <= n:
             halves = [rng.permutation(n) for _ in range(draws)]
-            d = pmap(lambda p: _rms_um(inst[p[:N]].mean(0), inst[p[N : 2 * N]].mean(0)), halves)
+            d = pmap(lambda p: _rms_um(_mean(inst, p[:N]), _mean(inst, p[N : 2 * N])), halves)
             # each half carries noise sigma/sqrt(N), so their difference carries sqrt(2) times that
             row["noise_um"] = float(np.nanmean(d) / np.sqrt(2))
         rows.append(row)

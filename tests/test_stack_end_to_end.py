@@ -3,7 +3,7 @@ import json
 import cv2
 import numpy as np
 
-from glyphstack import stack
+from glyphstack import chunks, stack
 
 
 def glyph(ch, rng):
@@ -44,8 +44,11 @@ def test_build_and_save_round_trip(tmp_path):
     assert len(row["scans"]) == 2
     assert man["noise"]["n_pairs"] == 20 or man["noise"]["n_pairs"] > 0
     assert man["noise"]["single_scan_um"] < 5
-    arrays = np.load(tmp_path / "out" / "stacks.npz")
-    assert arrays["o__mean"].ndim == 2 and arrays["o__inst"].shape[0] == 20
+    stacks, _ = stack.load(tmp_path / "out")
+    assert stacks["o"]["mean"].ndim == 2 and len(stacks["o"]["inst"]) == 20
+    assert stacks["o"]["inst"].take([0, 19]).shape == (2, *stacks["o"]["mean"].shape)
+    # the reloaded instances are the float16 stack, so their mean is the stack's mean
+    assert np.abs(stacks["o"]["inst"].take(range(20)).mean(0) - stacks["o"]["mean"]).max() < 1e-2
 
 
 def test_every_view_of_a_printed_glyph_joins_one_instance(tmp_path):
@@ -54,3 +57,40 @@ def test_every_view_of_a_printed_glyph_joins_one_instance(tmp_path):
     rows = [r for r in res["instances"] if r["char"] == "o"]
     assert all(len(r["scans"]) == 4 for r in rows)
     assert res["noise"]["views_mean"] == 4
+
+
+def test_streamed_stack_matches_stacking_in_memory(tmp_path, monkeypatch):
+    # chunks of three images, so a printed glyph's views can straddle two chunks
+    monkeypatch.setattr(chunks, "CHUNK_BYTES", 34 * 30 * 2 * 3)
+    rng = np.random.default_rng(5)
+    # twelve printed glyphs of one or two views each, and one wrong glyph that the screen drops
+    views = [glyph("o", rng) for _ in range(20)] + [glyph("l", rng)]
+    keys = [("s0", i) if i < 12 else ("s1", i - 12) for i in range(21)]
+    spans = [(k, a, b) for k, (a, b) in zip(range(13), [(i, i + 1) for i in range(4)] + [(4 + 2 * j, 6 + 2 * j) for j in range(8)] + [(20, 21)])]
+    levels = {"s0": 0.45, "s1": 0.55}
+    with chunks.Writer(tmp_path / "regs", meta=dict(keys=[list(k) for k in keys])) as w:
+        for v in views:
+            w.add(v)
+    R = chunks.Store(tmp_path / "regs")
+    st, pair_dev, keep, loo, devs = stack.stack_glyph(R, keys, spans, levels, 1.0, tmp_path / "g", loo_min=0.8)
+    reg = R.take(range(21))
+    inst = np.array([np.mean([stack.remap(reg[i], levels[keys[i][0]]) for i in range(a, b)], 0) for _, a, b in spans])
+    mean, keep2, loo2, loo_kept = stack.stack_instances(inst, loo_min=0.8)
+    assert not keep[-1] and (keep == keep2).all()
+    assert np.array_equal(st["mean"], mean) and np.array_equal(loo, loo2) and np.array_equal(st["loo"], loo_kept)
+    assert np.array_equal(st["sd"], inst[keep].std(0))
+    assert pair_dev[0] is None and pair_dev[4] is not None and devs[-1] is None
+    assert len(chunks.Store(tmp_path / "g" / "inst")) == keep.sum()
+
+
+def test_chunk_store_reads_back_in_any_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(chunks, "CHUNK_BYTES", 3 * 4 * 5 * 2)
+    imgs = [np.full((4, 5), i / 10, np.float32) for i in range(10)]
+    with chunks.Writer(tmp_path / "s") as w:
+        for a in imgs:
+            w.add(a)
+    R = chunks.Store(tmp_path / "s")
+    assert len(R) == 10 and R.chunk == 3 and len(list((tmp_path / "s").glob("*.npz"))) == 4
+    got = R.take([9, 0, 4, 3])
+    assert np.allclose(got[:, 0, 0], [0.9, 0.0, 0.4, 0.3], atol=1e-3) and got.dtype == np.float32
+    assert np.allclose(R[7], 0.7, atol=1e-3)
