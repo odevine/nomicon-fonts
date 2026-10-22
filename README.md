@@ -21,18 +21,18 @@ Several shifted passes of one card can be given together. `superres.py` register
 
 ## Writing a scan table
 
-A scan table is a CSV file that lists a session's scans, one row per scan, with the columns `file`, `card` and `angle`. Both `prepare.py` and `session.py` read it. This one covers one card at every notch of a 15 degree jig and its quarter turn, and a second card scanned upright and turned a quarter.
+A scan table is a CSV file that lists a session's scans, one row per scan, with the columns `file`, `card` and `angle`. Both `prepare.py` and `session.py` read it. This one covers one card at the four jig angles and the same four turned a quarter, half of the sixteen 22.5 degree steps, and a second card scanned upright and turned a quarter. The file names give the angle in tenths of a degree.
 
 ```
 file,card,angle,notes
-reefworm_000.png,ReefWorm,0,
-reefworm_015.png,ReefWorm,15,
-reefworm_030.png,ReefWorm,30,
-reefworm_045.png,ReefWorm,45,
-reefworm_090.png,ReefWorm,90,
-reefworm_105.png,ReefWorm,105,
-reefworm_120.png,ReefWorm,120,
-reefworm_135.png,ReefWorm,135,
+reefworm_0000.png,ReefWorm,0,
+reefworm_0225.png,ReefWorm,22.5,
+reefworm_0450.png,ReefWorm,45,
+reefworm_0675.png,ReefWorm,67.5,
+reefworm_0900.png,ReefWorm,90,
+reefworm_1125.png,ReefWorm,112.5,
+reefworm_1350.png,ReefWorm,135,
+reefworm_1575.png,ReefWorm,157.5,
 altair_000.png,Altair,0,
 altair_090.png,Altair,90,rescanned after the card slipped
 ```
@@ -41,7 +41,7 @@ altair_090.png,Altair,90,rescanned after the card slipped
 
 **`card` is an ID that groups the scans of one physical card.** The pipeline only checks whether two scans share it and never looks the card up. The site shows it, splitting CamelCase into words, so write it in CamelCase without spaces or accents, such as `ReefWorm` or `Altair`. It cannot contain a colon, because instance IDs are built as `card:char:scan:unit`. A card whose printed name has an accent gets an entry in the `display` table in `site/src/lib/format.ts`, the way `Altair` is shown as Altaïr.
 
-**`angle` is the card's counterclockwise turn in degrees as it appears in the scan image.** The card lies face down on the glass, so a turn that looks counterclockwise from above shows up clockwise in the scan. Write the jig's notch plus any quarter turns, such as 105 for the 15 degree notch turned a quarter. Negative angles work too, and -15 is the same as 345. The card outline refines the angle only within a quarter turn, so the table has to give the quarter turn. If every off-axis scan warns that it is turned about twice its notch the other way, the jig turns against this convention, and the notches should be written as 345, 330 and 315 in place of 15, 30 and 45.
+**`angle` is the card's counterclockwise turn in degrees as it appears in the scan image.** The card lies face down on the glass, so a turn that looks counterclockwise from above shows up clockwise in the scan. Write the jig's angle plus any quarter turns, such as 112.5 for the 22.5 degree jig turned a quarter. Negative angles work too, and -22.5 is the same as 337.5. The card outline refines the angle only within a quarter turn, so the table has to give the quarter turn. If every off-axis scan warns that it is turned about twice its notch the other way, the jig turns against this convention, and each angle should be written as 360 minus the angle, such as 337.5 in place of 22.5.
 
 **Every card should have a scan at 0 degrees and at least one more.** The card's first 0 degree scan is the reference that its other scans are matched to. A card without one is warned about and uses its first scan instead, and a card with a single scan gives each of its glyphs only one view.
 

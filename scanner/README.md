@@ -8,15 +8,19 @@ This folder holds the printed aids for a scanning session: the calibration targe
 
 ## Card jigs
 
-`jigs.pdf` puts four jigs on one sheet, for 0, 15, 30 and 45 degrees. Two thin cuts through the middle of the sheet make four quarters, each keeping a factory corner of the paper, which goes into the scanner bed's corner. Each quarter then needs its two thick notch cuts along the lines of the card's edges. The card slides into the notch from the open side, and every jig puts the card's centre at the same place on the bed, which the sheet's notes give. Keep the printed side up on the glass.
+`jigs.pdf` puts four jigs on one sheet, for 0, 22.5, 45 and 67.5 degrees. Two thin cuts through the middle of the sheet make four quarters, each keeping a factory corner of the paper, which goes into the scanner bed's corner. Each quarter then needs its two thick notch cuts along the lines of the card's edges. The card slides into the notch from the open side, and every jig puts the card's centre at the same place from the bed corner. Keep the printed side up on the glass.
 
-The angle on each jig is counterclockwise as printed. The card lies face down, so in the scan the turn can come out mirrored. If the first session warns that every off-axis scan is about twice its angle away from the scan table, write the angles as 345, 330 and 315 in place of 15, 30 and 45. The README at the top of the repository describes the scan table.
+Nothing is printed within 15 mm of the sheet's edge, so printers that cannot print to the edge still print every line. The thin cuts and some notch lines stop at that border, and those cuts carry on straight to the paper's edge.
 
-`make_jigs.py` writes `jigs.pdf`. It searches for the card position and the angle for each corner that let every notch touch the full length of both card edges, and checks that no piece covers the card.
+**Each jig gives four of the sixteen angles.** Used in each of the bed's four corners, a jig turns the card by its own angle plus a quarter turn per corner, so the four jigs together cover the full circle in 22.5 degree steps. Turning the card end over end in the same notch adds a half turn without moving the jig.
+
+The angle on each jig is counterclockwise as printed. The card lies face down, so in the scan the turn can come out mirrored. If the first session warns that every off-axis scan is about twice its angle away from the scan table, write each angle as 360 minus the angle, such as 337.5 in place of 22.5. The README at the top of the repository describes the scan table.
+
+`make_jigs.py` writes `jigs.pdf`. It searches for the card position and the angle for each corner that give each notch the most contact with the card inside the printable area, then the fewest cuts that run on past their printed line. It checks that no piece covers the card and that nothing is drawn within the margin.
 
 ```
 .venv/bin/python scanner/make_jigs.py
-.venv/bin/python scanner/make_jigs.py --angles 0 15 30 45 --card 63 88
+.venv/bin/python scanner/make_jigs.py --angles 0 22.5 45 67.5 --card 63 88 --margin 10
 ```
 
-`--angles` takes up to four angles, one for each corner of the sheet, and `--card` sets the card size in mm. The default is a 2.5 by 3.5 inch playing card, which a Magic card fits with about half a millimetre of play.
+`--angles` takes up to four angles, one for each corner of the sheet, `--card` sets the card size in mm, and `--margin` the unprinted border in mm. The default card is a 2.5 by 3.5 inch playing card, which a Magic card fits with about half a millimetre of play.
