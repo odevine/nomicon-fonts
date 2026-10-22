@@ -4,7 +4,6 @@ Only pieces of a few letters are written: a rules-text crop about 240 x 144 scan
 step, and one glyph-sized crop per glyph for the pixel layers. Everything else is derived coverage, never a whole card
 """
 import json
-import pickle
 from pathlib import Path
 
 import cv2
@@ -18,7 +17,8 @@ from .contours import UM_PER_PX, contours_at
 from .log import Progress, log, timed
 from .register import UP, com_canvas, rectify, register
 from .scan import load_gray
-from .stack import fname, units_by_char
+from . import chunks
+from .stack import ScanUnits, fname
 
 CONTEXT = (240, 144)
 PIXEL_PAD = 24
@@ -107,20 +107,23 @@ class Session:
         self.folder, self.scans_dir = Path(folder), Path(scans_dir)
         self.man = json.loads((self.folder / "manifest.json").read_text())
         self.traces = json.loads((self.folder / "traces.json").read_text())
-        self.scans = {f.stem: pickle.load(f.open("rb")) for f in sorted((self.folder / "work" / "units").glob("*.pkl"))}
-        self.by_char = units_by_char(self.scans)
-        self._card = None
+        self.scans = ScanUnits(self.folder)
+        self._card, self._regs = None, {}
 
     def frame(self, scan):
         """The card crop of a scan in the upright frame the units were cut in, loaded once and kept for the last scan used"""
         if self._card is None or self._card[0] != scan:
             crop, _ = un.card_crop(load_gray(next(self.scans_dir.glob(f"{scan}.*"))))
-            s = self.scans[scan]
-            self._card = (scan, un.upright(crop, s["angle"])[0])
+            self._card = (scan, un.upright(crop, self.man["scans"][scan]["angle"])[0])
         return self._card[1]
 
-    def reg(self, ch):
-        return np.load(self.folder / "work" / "regs" / f"{fname(ch)}.npz")["reg"]
+    def reg(self, ch, scan, unit):
+        """The registered 4x coverage of one unit of a glyph, from the glyph's chunk store"""
+        # one glyph's store at a time, so the chunk it keeps is the only one in memory
+        if self._regs.get("ch") != ch:
+            R = chunks.Store(self.folder / "work" / "regs" / fname(ch))
+            self._regs = dict(ch=ch, R=R, at={tuple(k): i for i, k in enumerate(R.index["keys"])})
+        return self._regs["R"][self._regs["at"][(scan, unit)]]
 
     def instance_rows(self, ch):
         return [r for r in self.man["instances"] if r["char"] == ch and r["kept"]]
@@ -137,7 +140,7 @@ class Session:
 
 def turn(S, scan):
     """A scan's angle in the scan table, from 0 up to 360"""
-    return S.scans[scan]["angle"] % 360
+    return S.man["scans"][scan]["angle"] % 360
 
 
 def unit_pair(S, row):
@@ -169,7 +172,7 @@ def export_pixels(S, out, p_by_char, asp, chars):
             y0, y1, x0, x1 = u["bbox"]
             y0, y1, x0, x1 = max(y0 - PIXEL_PAD, 0), min(y1 + PIXEL_PAD, g.shape[0]), max(x0 - PIXEL_PAD, 0), min(x1 + PIXEL_PAD, g.shape[1])
             raw = g[y0:y1, x0:x1]
-            reg = S.reg(ch)[S.by_char[ch].index((sp, ku))].astype(np.float32)
+            reg = S.reg(ch, sp, ku)
             by, bx = u["box"][0], u["box"][2]
             cov = u["cov"]
             Wn, cc = native_to_reg(cov, reg, S.scans[sp]["scale"])
@@ -254,9 +257,7 @@ def export_steps(S, out, p_by_char, asp):
     sh = lambda cs: [c - [ox, oy] for c in cs]
     s5 = dict(w=w5, h=h5, cards=[c for c, _, _ in picks], before=[rel_path(sh(c)) for c in allc[:len(picks)]], after=[rel_path(sh(c)) for c in allc[len(picks):]])
     # step 6, the same physical e from the upright scan and the scan turned closest to a quarter turn
-    R = S.reg(ch)
-    a = R[S.by_char[ch].index((sp, kp))].astype(np.float32)
-    b = R[S.by_char[ch].index((sl, kl))].astype(np.float32)
+    a, b = S.reg(ch, sp, kp), S.reg(ch, sl, kl)
     r0, r1, c0, c1 = ink_box(np.maximum(a, b), margin=4 * 6)
     a, b = a[r0:r1, c0:c1], b[r0:r1, c0:c1]
     save_ink(a, d / "s6_upright.webp")
@@ -285,9 +286,7 @@ def export_pairs(S, out, chars):
         med = float(np.median([r["pair_dev_um"] for _, r in rows]))
         k, row = min(rows, key=lambda kr: abs(kr[1]["pair_dev_um"] - med))
         (sp, kp), (sl, kl) = unit_pair(S, row)
-        R = S.reg(ch)
-        a = R[S.by_char[ch].index((sp, kp))].astype(np.float32)
-        b = R[S.by_char[ch].index((sl, kl))].astype(np.float32)
+        a, b = S.reg(ch, sp, kp), S.reg(ch, sl, kl)
         r0, r1, c0, c1 = ink_box(np.maximum(a, b), margin=4 * 6)
         name = styles.glyph_name(ch)
         save_ink(a[r0:r1, c0:c1], d / f"{name}_u.webp")

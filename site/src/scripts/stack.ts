@@ -14,7 +14,7 @@ class StackView extends HTMLElement {
     try {
       const [g, sweep] = await Promise.all([
         fetch(`${base}glyphs/${name}.json`).then((r) => r.json() as Promise<Glyph>),
-        fetch(`${base}sweep/${name}.json`).then((r) => r.json() as Promise<{ rows: SweepRow[]; recommended_n: number }>),
+        fetch(`${base}sweep/${name}.json`).then((r) => r.json() as Promise<{ rows: SweepRow[]; recommended_n: number; instances_swept?: number }>),
       ]);
       this.build(g, sweep);
     } catch (err) {
@@ -23,7 +23,7 @@ class StackView extends HTMLElement {
     }
   }
 
-  build(g: Glyph, sweep: { rows: SweepRow[]; recommended_n: number }) {
+  build(g: Glyph, sweep: { rows: SweepRow[]; recommended_n: number; instances_swept?: number }) {
     // the band between the pipeline's minimum instance count and its confident count
     const KNEE = this.dataset.knee!.split(',').map(Number) as [number, number];
     const label = glyphLabel(g.char, g.style);
@@ -57,7 +57,7 @@ class StackView extends HTMLElement {
     </dl>
     <figure class="sweep-fig">
       <svg class="sweep" viewBox="0 0 340 220" role="img" aria-labelledby="sw-t sw-d"><title id="sw-t">Edge error against the number of stacked instances</title><desc id="sw-d">Edge RMS against the measuring stick falls as more instances are stacked. The numbers are on the data page.</desc></svg>
-      <figcaption>Edge error against the measuring stick as N grows, from a sweep over random subsets of all ${g.n}. Solid line: edge error. Dashed: modelled noise. Grey band: p10 to p90. Red tick: recommended N. Pink band: the project’s sweet spot. The dot is the trace shown on the left, which uses one particular order, so it can sit off the curve. The numbers are on the <a href="${this.dataset.dataPage}#glyph-${this.dataset.glyph}">data page</a>.</figcaption>
+      <figcaption>Edge error against the measuring stick as N grows, from a sweep over random subsets of ${sweep.instances_swept && sweep.instances_swept < g.n ? `${sweep.instances_swept} instances drawn at random from the ${g.n}` : `all ${g.n}`}. Solid line: edge error. Dashed: modelled noise. Grey band: p10 to p90. Red tick: recommended N. Pink band: the project’s sweet spot. The dot is the trace shown on the left, which uses one particular order, so it can sit off the curve. The numbers are on the <a href="${this.dataset.dataPage}#glyph-${this.dataset.glyph}">data page</a>.</figcaption>
     </figure>
   </div>
 </div>`;

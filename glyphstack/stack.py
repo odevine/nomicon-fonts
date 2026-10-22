@@ -7,20 +7,23 @@ registered, normalised to a common edge level, averaged over the views of each p
 outliers and averaged
 """
 import json
+import pickle
+import shutil
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
 import numpy as np
 from scipy import ndimage as ndi
 
+from . import chunks
 from .contours import UM_PER_PX, edge_rms_um
 from .log import Progress, log, timed
 from . import target
 from .pairing import match_map
 from .styles import stem as fname
-from .register import ecc_affine, iou, place, pmap, rectify, register, rotation_scale
+from .register import ecc_affine, iou, place, pmap, rectified_shape, rectify, register, register_shifts, registered, rotation_scale
 
 AFFINE_MIN_CC = 0.85
 # units per scan fitted by affine ECC, and per glyph registered for the reference means between passes
@@ -28,6 +31,27 @@ AFFINE_SAMPLE = 60
 REF_SAMPLE = 400
 GROUP_TOL_PX = 8
 SEED = 2026
+
+
+class ScanUnits:
+    """The extracted units of a session's scans, read from work/units one scan at a time with the last few kept in memory"""
+
+    def __init__(self, folder, keep=4):
+        self.files = {f.stem: f for f in sorted((Path(folder) / "work" / "units").glob("*.pkl"))}
+        self._load = lru_cache(keep)(lambda n: pickle.loads(self.files[n].read_bytes()))
+
+    def __getitem__(self, name):
+        return self._load(name)
+
+    def __len__(self):
+        return len(self.files)
+
+    def __iter__(self):
+        return iter(self.files)
+
+    def items(self):
+        for n in self.files:
+            yield n, self[n]
 
 
 def units_by_char(scans):
@@ -250,11 +274,116 @@ def view_dev_um(views, cap=8):
     return float(np.sqrt((d**2).mean() * 2 * (n - 1) / n)) if len(d) else None
 
 
-def build(scans, workdir, iterations=2, chars=None, tie=True):
+def register_glyph(scans, M_tie, keys, order, folder, batch=64):
+    """Registers the given units of one glyph into a chunk store at folder, returns each unit's edge level in store order
+
+    The running means are summed in the order of keys, which fixes the result, and the store holds keys[i] for i in order
+    """
+    load = lambda i: grid_unit(scans, keys[i], M_tie[keys[i][0]])
+    shapes = [rectified_shape(scans[n]["units"][k], scans[n]["scale"], M_tie[n]) for n, k in keys]
+    size, shifts, mean = register_shifts(load, len(keys), shapes)
+    area = (mean > 0.5).sum()
+
+    def one(i):
+        r = registered(load(i), size, shifts[i])
+        # the level is measured on the float32 image, before the store rounds it to float16
+        return r, level_for_area(r, area)
+
+    levels = []
+    with chunks.Writer(folder, meta=dict(keys=[list(keys[i]) for i in order])) as w:
+        for b in range(0, len(order), batch):
+            for r, t in pmap(one, order[b : b + batch]):
+                w.add(r)
+                levels.append(t)
+    return levels
+
+
+def _instances(R, keys, spans, levels, views=128):
+    """Batches of (span index, raw views, mean of the remapped views), one per printed glyph, read from the store in order
+
+    A batch holds whole printed glyphs and about `views` views, read with one take so each chunk is decompressed once
+    """
+    def inst(i, vs):
+        a = spans[i][1]
+        return np.mean([remap(v, levels[keys[a + j][0]]) for j, v in enumerate(vs)], 0)
+
+    b = 0
+    while b < len(spans):
+        e = b + 1
+        while e < len(spans) and spans[e][2] - spans[b][1] <= views:
+            e += 1
+        a0 = spans[b][1]
+        block = R.take(range(a0, spans[e - 1][2]))
+        idx = range(b, e)
+        vs = [block[spans[i][1] - a0 : spans[i][2] - a0] for i in idx]
+        yield list(zip(idx, vs, pmap(lambda iv: inst(*iv), list(zip(idx, vs)))))
+        b = e
+
+
+def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
+    """Screens and stacks one glyph from its registered units in R, reading the store three or four times
+
+    Gives the same numbers as stack_instances on the whole glyph, since every sum runs in order in float32. Writes
+    stack.npz (mean, sd and the kept instances' leave-one-out IoU) and the kept instances as a chunks.Store under
+    folder. Returns the stack, then per printed glyph the view against view deviation, keep flag, leave-one-out
+    IoU and deviation from the stack
+    """
+    loo_min = target.get()["stack"]["loo_min_iou"] if loo_min is None else loo_min
+    n = len(spans)
+    sc = lambda a: cv2.resize(a, None, fx=1, fy=asp, interpolation=cv2.INTER_CUBIC)
+    passes = lambda: _instances(R, keys, spans, levels)
+    pair_dev, acc = [None] * n, np.zeros(R.shape, np.float32)
+    for batch in passes():
+        # disagreement between the views of the same printed glyph, before the edge level remap
+        for (i, _, a), d in zip(batch, pmap(lambda b: view_dev_um(b[1]), batch)):
+            acc += a
+            pair_dev[i] = d
+    mean = acc / n
+    loo = np.ones(n)
+    if n > 2:
+        for batch in passes():
+            for (i, _, _), v in zip(batch, pmap(lambda b: iou(b[2], (mean * n - b[2]) / (n - 1)), batch)):
+                loo[i] = v
+    keep = loo >= loo_min
+    nk = int(keep.sum())
+    if not keep.all():
+        acc = np.zeros(R.shape, np.float32)
+        for batch in passes():
+            for i, _, a in batch:
+                if keep[i]:
+                    acc += a
+        mean = acc / nk
+    redo_loo = not keep.all() and nk > 2
+    loo_kept = loo[keep] if keep.all() else np.ones(nk)
+    mean_p = sc(mean)
+    def kept(b):
+        a = b[2]
+        ap = sc(a)
+        return ap, edge_rms_um(ap, mean_p), iou(a, (mean * nk - a) / (nk - 1)) if redo_loo else None
+
+    devs, sq, k = [None] * n, np.zeros(R.shape, np.float32), 0
+    with chunks.Writer(folder / "inst") as w:
+        for batch in passes():
+            batch = [b for b in batch if keep[b[0]]]
+            for (i, _, a), (ap, dev, li) in zip(batch, pmap(kept, batch)):
+                sq += (a - mean) ** 2
+                devs[i] = dev
+                if redo_loo:
+                    loo_kept[k] = li
+                w.add(ap)
+                k += 1
+    sd = sc(np.sqrt(sq / nk))
+    np.savez_compressed(folder / "stack.npz", mean=mean_p, sd=sd, loo=loo_kept)
+    return dict(mean=mean_p, sd=sd, n=nk, loo=loo_kept), pair_dev, keep, loo, devs
+
+
+def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None):
     """Runs the full stacking over {scan name: {units, scale, card, angle}}
 
     Returns {"stacks": {char: {...}}, "levels": {scan: level}, "aspect": float, "scans": per-scan geometry,
-    "instances": manifest rows}. Registered per-unit maps are cached under workdir/regs, one glyph in memory at a time
+    "instances": manifest rows}. Registered per-unit maps go to workdir/regs and each glyph's stack to
+    stacks_dir/<glyph>, default workdir/stacks, with its instances in a chunks.Store. Memory follows one batch of
+    units rather than the largest glyph
     """
     workdir = Path(workdir)
     (workdir / "regs").mkdir(parents=True, exist_ok=True)
@@ -276,58 +405,44 @@ def build(scans, workdir, iterations=2, chars=None, tie=True):
     n_groups = {c: len({group_of.get(nk, nk) for nk in v}) for c, v in by_char.items()}
     min_units = target.get()["stack"]["min_units"]
     glyphs = [c for c, v in by_char.items() if len(v) >= min_units and n_groups[c] >= min_units // 2]
-    # registration and the edge level of each unit in one pass, saving each glyph while the next one registers
-    per_scan, unit_level = defaultdict(list), {}
+    # each glyph's store holds its units in printed glyph order, so the views of one printed glyph sit together
+    spans_of, keys_of, per_scan, levels_of = {}, {}, defaultdict(list), {}
     prog = Progress("registering glyphs", len(glyphs))
-    with ThreadPoolExecutor(2) as saver:
-        pending = []
-        for ch in glyphs:
-            reg = register(rectify_glyph(scans, M_tie, by_char[ch]))
-            area = (np.mean(reg, 0) > 0.5).sum()
-            for nk, r in zip(by_char[ch], reg):
-                unit_level[nk] = level_for_area(r, area)
-                per_scan[nk[0]].append(unit_level[nk])
-            pending.append(saver.submit(np.savez_compressed, workdir / "regs" / f"{fname(ch)}.npz", reg=np.array(reg, np.float16)))
-            del reg
-            prog.step(f"{ch!r}, {len(by_char[ch])} units")
-        for f in pending:
-            f.result()
+    for ch in glyphs:
+        groups = defaultdict(list)
+        for key in by_char[ch]:
+            groups[group_of.get(key, key)].append(key)
+        keys_of[ch] = [key for g in groups.values() for key in g]
+        ends = np.cumsum([len(g) for g in groups.values()])
+        spans_of[ch] = [(kk, int(e - len(g)), int(e)) for (kk, g), e in zip(groups.items(), ends)]
+        at = {key: i for i, key in enumerate(by_char[ch])}
+        levels_of[ch] = register_glyph(scans, M_tie, by_char[ch], [at[key] for key in keys_of[ch]], workdir / "regs" / fname(ch))
+        for nk, t in zip(keys_of[ch], levels_of[ch]):
+            per_scan[nk[0]].append(t)
+        prog.step(f"{ch!r}, {len(by_char[ch])} units")
     levels = {n: float(np.median(v)) for n, v in per_scan.items()}
     log.info("edge levels %s", " ".join(f"{n}:{t:.3f}" for n, t in sorted(levels.items())))
+    stacks_dir = Path(stacks_dir or workdir / "stacks")
+    if stacks_dir.exists():
+        shutil.rmtree(stacks_dir)
     stacks, rows = {}, []
     prog = Progress("stacking glyphs", len(glyphs))
     for ch in glyphs:
-        reg = np.load(workdir / "regs" / f"{fname(ch)}.npz")["reg"].astype(np.float32)
-        groups = defaultdict(list)
-        for i, key in enumerate(by_char[ch]):
-            groups[group_of.get(key, key)].append(i)
-        keys = list(groups)
-        # disagreement between the views of the same printed glyph, before the edge level remap
-        multi = [kk for kk in keys if len(groups[kk]) >= 2]
-        pair_dev = dict(zip(multi, pmap(lambda kk: view_dev_um(reg[groups[kk]]), multi)))
-        for i, (n, k) in enumerate(by_char[ch]):
-            reg[i] = remap(reg[i], levels[n])
-        inst = np.array([reg[groups[kk]].mean(0) for kk in keys])
-        del reg
-        mean, keep, loo, loo_kept = stack_instances(inst)
-        inst_kept = inst[keep]
-        sc = lambda a: cv2.resize(a, None, fx=1, fy=asp, interpolation=cv2.INTER_CUBIC)
-        mean_p = sc(mean)
-        cards = sorted({scans[kk[0]]["card"] for kk, kp in zip(keys, keep) if kp})
-        devs = pmap(lambda i: edge_rms_um(sc(inst[i]), mean_p) if keep[i] else None, range(len(keys)))
-        for i, kk in enumerate(keys):
-            members = [by_char[ch][j] for j in groups[kk]]
+        keys, spans = keys_of[ch], spans_of[ch]
+        R = chunks.Store(workdir / "regs" / fname(ch))
+        st, pair_dev, keep, loo, devs = stack_glyph(R, keys, spans, levels, asp, stacks_dir / fname(ch))
+        cards = sorted({scans[kk[0]]["card"] for (kk, _, _), kp in zip(spans, keep) if kp})
+        for i, (kk, a, b) in enumerate(spans):
+            members = keys[a:b]
             card = scans[kk[0]]["card"]
             rows.append(dict(
                 char=ch, pair_id=f"{card}:{ch}:{kk[0]}:{kk[1]}", card=card, kept=bool(keep[i]),
                 scans=[m[0] for m in members], units=[m[1] for m in members], edge_level=[levels[m[0]] for m in members],
                 halo_px=[scans[m[0]]["units"][m[1]]["halo_px"] for m in members], card_scale=float(np.sqrt(card_S[card][0, 0] * card_S[card][1, 1])),
-                print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev.get(kk),
+                print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev[i],
             ))
-        stacks[ch] = dict(mean=mean_p, sd=sc(inst_kept.std(0)), inst=np.array([sc(a) for a in inst_kept]).astype(np.float16), n=len(inst_kept),
-                          n_units=len(by_char[ch]), n_dropped=int((~keep).sum()), cards=cards, loo=loo_kept)
-        del inst, inst_kept
-        prog.step(f"{ch!r}: {stacks[ch]['n']} instances from {len(cards)} cards, {stacks[ch]['n_dropped']} dropped, LOO IoU {loo_kept.mean():.3f}")
+        stacks[ch] = dict(st, n_units=len(keys), n_dropped=int((~keep).sum()), cards=cards)
+        prog.step(f"{ch!r}: {st['n']} instances from {len(cards)} cards, {stacks[ch]['n_dropped']} dropped, LOO IoU {st['loo'].mean():.3f}")
     with_dev = [r for r in rows if r.get("pair_dev_um") is not None]
     devs = np.array([r["pair_dev_um"] for r in with_dev])
     nviews = np.array([len(r["scans"]) for r in with_dev])
@@ -340,18 +455,35 @@ def build(scans, workdir, iterations=2, chars=None, tie=True):
         log.info("view against view %d printed glyphs (%.1f views each), edge RMS %.2f um, single scan noise %.2f um, mean of views %.2f um",
                  len(devs), noise["views_mean"], rms, noise["single_scan_um"], noise["pair_mean_um"])
     scan_rows = {n: dict(card=s["card"], angle=s["angle"], print_scale=s["scale"], edge_level=levels.get(n), **info[n]) for n, s in scans.items()}
-    return dict(stacks=stacks, levels=levels, aspect=asp, scans=scan_rows, instances=rows, noise=noise, card_S={c: m.tolist() for c, m in card_S.items()})
+    return dict(stacks=stacks, stacks_dir=str(stacks_dir), levels=levels, aspect=asp, scans=scan_rows, instances=rows, noise=noise, card_S={c: m.tolist() for c, m in card_S.items()})
 
 
 def save(result, out):
-    """Writes stacks.npz and manifest.json under out"""
+    """Writes manifest.json under out and moves the per-glyph stacks to out/stacks when they were built elsewhere"""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    arrays = {}
-    for ch, s in result["stacks"].items():
-        for k in ("mean", "sd", "inst", "loo"):
-            arrays[f"{fname(ch)}__{k}"] = s[k]
-    np.savez_compressed(out / "stacks.npz", **arrays)
+    src, dst = Path(result["stacks_dir"]), out / "stacks"
+    if src.resolve() != dst.resolve():
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.move(src, dst)
+        result["stacks_dir"] = str(dst)
+    # a leftover stacks.npz no longer matches this run
+    (out / "stacks.npz").unlink(missing_ok=True)
     meta = {ch: {k: v for k, v in s.items() if k not in ("mean", "sd", "inst", "loo")} for ch, s in result["stacks"].items()}
     manifest = dict(profile=result.get("profile"), aspect=result["aspect"], noise=result["noise"], scans=result["scans"], card_S=result["card_S"], glyphs=meta, instances=result["instances"], um_per_px=UM_PER_PX)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
+
+
+def load(folder):
+    """Reads manifest.json and the per-glyph stacks of a session folder, each glyph's instances stay on disk as a chunks.Store"""
+    folder = Path(folder)
+    man = json.loads((folder / "manifest.json").read_text())
+    if not (folder / "stacks").is_dir():
+        raise SystemExit(f"{folder} has no stacks folder, rerun the session to write per-glyph stacks")
+    stacks = {}
+    for ch, m in man["glyphs"].items():
+        d = folder / "stacks" / fname(ch)
+        Z = np.load(d / "stack.npz")
+        stacks[ch] = dict(m, mean=Z["mean"], sd=Z["sd"], loo=Z["loo"], inst=chunks.Store(d / "inst"))
+    return stacks, man

@@ -28,7 +28,7 @@ export interface GlyphDoc extends Omit<GlyphRow, 'cards' | 'source'> {
   trace_by_n: { n: number; cards: number; trace: string; nodes: number; edge_rms_um: number | null }[];
   mean: Record<string, string>; cutaways: { path: string; radius: number; deviation_um: number }[];
 }
-export interface Sweep { rows: { n: number; rms_vs_ref_um: number; p10: number; p90: number; noise_model_um: number }[]; recommended_n: number }
+export interface Sweep { rows: { n: number; rms_vs_ref_um: number; p10: number; p90: number; noise_model_um: number }[]; recommended_n: number; instances_swept?: number }
 interface NoisePair { hist: Hist; n_pairs: number; pair_rms_um: number; single_scan_um: number; pair_mean_um: number; tied: boolean; note: string }
 export interface Noise { headline: NoisePair; alternative: NoisePair }
 export interface Ruler { scan_axis: string; ticks: number; tilt_deg: number; px_per_mm: number; resid_px: number }
