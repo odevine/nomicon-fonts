@@ -13,5 +13,5 @@ export const pages: { path: string; title: string; milestone: string; blurb: str
   { path: '/typeset/', title: 'Typeset', milestone: 'M3', blurb: 'Set your own text with real printed letters.' },
   { path: '/log/', hidden: true, title: 'Log', milestone: '', blurb: 'Dated progress entries, newest first.' },
   { path: '/data/', title: 'Data and method', milestone: '', blurb: 'Every data file, how to reproduce it, and the limits.' },
-  { path: '/about/', title: 'About', milestone: '', blurb: 'Name, licences, credits and the Fan Content Policy notice.' },
+  { path: '/about/', title: 'About', milestone: '', blurb: 'Credits and the Fan Content Policy notice.' },
 ];

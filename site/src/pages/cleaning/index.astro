@@ -124,8 +124,7 @@ const sx = [
 
     <section class="step" id="step-10" aria-labelledby="h10s">
       <div class="txt"><p class="num">10</p><h2 id="h10s">The final glyph</h2>
-        <p>The traced printed shape. Against the designed font, fitted by size and position only, its edge RMS is {fmt(e.edge_rms_um, 2)} µm and IoU {fmt(e.iou, 3)}. The print sits about {fmt(s.ink_spread_um, 0)} µm outside the design on each edge. This ink spread is relative to the pooled edge level, not an absolute measurement.</p>
-        <p class="proof placeholder">The designed outline is not drawn here. A few short windows of it may be shown later, once their size is agreed.</p></div>
+        <p>The traced printed shape. Against the designed font, fitted by size and position only, its edge RMS is {fmt(e.edge_rms_um, 2)} µm and IoU {fmt(e.iou, 3)}. The print sits about {fmt(s.ink_spread_um, 0)} µm outside the design on each edge. This ink spread is relative to the pooled edge level, not an absolute measurement.</p></div>
       <figure class="panel"><svg viewBox={viewBox(b, PAD)} role="img" aria-labelledby="p10t"><title id="p10t">The traced e</title>
         <path class="ink-fill" d={e.trace} fill-rule="evenodd" />
         <line class="bar" x1={b.x0} x2={b.x0 + fuBar} y1={b.y1 + PAD - 14} y2={b.y1 + PAD - 14} /></svg>

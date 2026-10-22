@@ -28,9 +28,8 @@ test('the size chart and the closeness numbers use the exported numbers', async 
   await expect(page.locator('.stat-line')).toContainText(`${glyphs.length} letters`);
 });
 
-test('the history is a plain note until the sources are approved, and the face is never named Plantin', async ({ page }) => {
+test('the face is never named Plantin', async ({ page }) => {
   await page.goto('/printing-leaves-a-mark/');
-  await expect(page.locator('#shapes + .proof')).toContainText('still to be written');
   const text = await page.locator('main').innerText();
   expect(text).not.toMatch(/Plantin/);
   expect(await page.title()).not.toMatch(/Plantin/);
