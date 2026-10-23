@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from glyphstack import calibration as cal
 
@@ -30,6 +31,34 @@ def test_measure_ruler_on_synthetic_target():
     assert len(pos) == 61
     assert abs(scale - 47.3) < 0.05
     assert abs(tilt) < 0.05
+
+
+def printed_ruler(tilt, pitch=47.3, ticks=61, paper=236, size=(500, 3200)):
+    """Thin baseline with ticks standing above it, 50 px long and longer every 5 and 10 mm, as the target prints them"""
+    img = np.full(size, paper, np.uint8)
+    base, slope = 300, np.tan(np.radians(tilt))
+    for x in range(100, 100 + int(pitch * (ticks - 1)) + 4):
+        y = base + int(round((x - 100) * slope))
+        img[y - 2 : y + 3, x] = 0
+    for i in range(ticks):
+        x = int(round(100 + i * pitch))
+        y = base + int(round((x - 100) * slope))
+        length = 100 if i % 10 == 0 else 75 if i % 5 == 0 else 50
+        img[y - length : y, x - 2 : x + 3] = 0
+    return img
+
+
+@pytest.mark.parametrize("tilt", [1.0, -1.0])
+def test_measure_ruler_on_a_ruler_a_degree_askew(tilt):
+    # the baseline drifts 50 px along the ruler, past a search window centred on one row
+    img = printed_ruler(tilt)
+    ys, xs = np.nonzero(img < 128)
+    bbox = (int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1))
+    measured, pos = cal.measure_ruler(img, bbox, vertical=False, pad=60)
+    scale, _ = cal.fit_scale(pos)
+    assert len(pos) == 61
+    assert abs(scale - 47.3) < 0.05
+    assert abs(abs(measured) - 1.0) < 0.05
 
 
 def test_find_rulers_and_squares_by_size():
