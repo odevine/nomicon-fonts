@@ -40,11 +40,16 @@ def canvas_size(shapes, margin=MARGIN):
     return int(np.percentile([s[0] for s in shapes], 98)) + 2 * margin, int(np.percentile([s[1] for s in shapes], 98)) + 2 * margin
 
 
-def on_canvas(img, size):
-    """An image placed on a canvas of the given size with its centre of mass at the canvas centre"""
-    Hc, Wc = size
+def com_offset(img, size):
+    """Where on_canvas places an image's top left corner, so its centre of mass lands at the canvas centre"""
     cy, cx = ndi.center_of_mass(img)
-    oy, ox = int(round(Hc / 2 - cy)), int(round(Wc / 2 - cx))
+    return int(round(size[0] / 2 - cy)), int(round(size[1] / 2 - cx))
+
+
+def on_canvas(img, size, offset=None):
+    """An image placed on a canvas of the given size with its centre of mass at the canvas centre, or at offset when given"""
+    Hc, Wc = size
+    oy, ox = offset or com_offset(img, size)
     c = np.zeros((Hc, Wc), np.float32)
     h, w = img.shape
     ys0, xs0, ys1, xs1 = max(oy, 0), max(ox, 0), min(oy + h, Hc), min(ox + w, Wc)
@@ -58,14 +63,22 @@ def com_canvas(imgs, margin=MARGIN):
     return [on_canvas(i, size) for i in imgs]
 
 
-def ecc_shift(ref, img):
-    """Translation that maps ref to img by ECC, the identity when ECC cannot converge"""
-    w = np.eye(2, 3, dtype=np.float32)
+def ecc_shift(ref, img, start=None):
+    """Translation that maps ref to img by ECC from start, default the identity, and start itself when ECC cannot converge"""
+    w = np.eye(2, 3, dtype=np.float32) if start is None else start.copy()
     try:
         _, w = cv2.findTransformECC(ref, img, w, cv2.MOTION_TRANSLATION, _CRIT, None, 5)
     except cv2.error:
         pass
     return w
+
+
+def ink_box(img, margin=24, thr=0.02):
+    """Rows and columns (y0, y1, x0, x1) of the image's ink plus a margin, the whole image when it has none"""
+    ys, xs = np.nonzero(img > thr)
+    if len(ys) == 0:
+        return 0, img.shape[0], 0, img.shape[1]
+    return max(ys.min() - margin, 0), ys.max() + margin + 1, max(xs.min() - margin, 0), xs.max() + margin + 1
 
 
 def ecc_affine(ref, img):
@@ -85,10 +98,18 @@ def warp_to(ref, img, w):
 def register_shifts(load, n, shapes, iters=3, batch=64):
     """The canvas size, each image's translation and the mean that register() arrives at, holding one batch of images at a time
 
-    load(i) gives image i, shapes are the images' shapes. Each image is loaded once per pass, iters + 1 times in all
+    load(i) gives image i, shapes are the images' shapes. Each image is loaded once per pass, iters + 1 times in all.
+    Each pass runs ECC on the mean's ink plus a margin, starting from the image's shift in the pass before
     """
     size = canvas_size(shapes)
-    canvas = lambda i: on_canvas(load(i), size)
+    offsets = [None] * n
+
+    def canvas(i):
+        img = load(i)
+        if offsets[i] is None:
+            offsets[i] = com_offset(img, size)
+        return on_canvas(img, size, offsets[i])
+
     batches = [range(b, min(b + batch, n)) for b in range(0, n, batch)]
     # summed in order in float32, which gives the same mean as np.mean over the stacked images
     acc = np.zeros(size, np.float32)
@@ -96,19 +117,23 @@ def register_shifts(load, n, shapes, iters=3, batch=64):
         for c in pmap(canvas, b):
             acc += c
     ref = acc / n
+    shifts = [np.eye(2, 3, dtype=np.float32)] * n
     for _ in range(iters):
-        acc, shifts = np.zeros(size, np.float32), []
+        y0, y1, x0, x1 = ink_box(ref)
+        crop = np.ascontiguousarray(ref[y0:y1, x0:x1])
+
+        def one(i):
+            c = canvas(i)
+            w = ecc_shift(crop, np.ascontiguousarray(c[y0:y1, x0:x1]), shifts[i])
+            return w, warp_to(ref, c, w)
+
+        acc = np.zeros(size, np.float32)
         for b in batches:
-            for w, r in pmap(lambda i: _shift_and_warp(ref, canvas(i)), b):
-                shifts.append(w)
+            for i, (w, r) in zip(b, pmap(one, b)):
+                shifts[i] = w
                 acc += r
         ref = acc / n
     return size, shifts, ref
-
-
-def _shift_and_warp(ref, c):
-    w = ecc_shift(ref, c)
-    return w, warp_to(ref, c, w)
 
 
 def registered(img, size, w):
