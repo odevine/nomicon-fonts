@@ -57,15 +57,22 @@ def measure_pairs(scans, levels, card_S, font, fu_px, spread_px, style=None):
 
 
 def summarise(rows):
-    """Per pair designed value and observed mean, spread and count, with the individual samples"""
+    """Per pair designed value and observed mean, spread and count, without the individual samples"""
     by = defaultdict(list)
     for r in rows:
         by[r["pair"]].append(r)
     out = {}
     for pair, rs in by.items():
         nk, dk = np.array([r["dev_nokern"] for r in rs]), np.array([r["dev_kern"] for r in rs])
-        out[pair] = dict(
-            n=len(rs), designed_gap=rs[0]["base"], kern=rs[0]["kern"], mean_dev_nokern=float(nk.mean()), mean_dev_kern=float(dk.mean()), sd=float(dk.std()),
-            samples=[dict(scan=r["scan"], card=r["card"], dev_nokern=round(r["dev_nokern"], 1), dev_kern=round(r["dev_kern"], 1)) for r in rs],
-        )
+        out[pair] = dict(n=len(rs), designed_gap=rs[0]["base"], kern=rs[0]["kern"], mean_dev_nokern=float(nk.mean()), mean_dev_kern=float(dk.mean()), sd=float(dk.std()))
     return out
+
+
+def samples(rows):
+    """Every measured sample per pair as [scan index, deviation without kerning, deviation with kerning] in font units, with the scan names once"""
+    scans = sorted({r["scan"] for r in rows})
+    at = {n: i for i, n in enumerate(scans)}
+    pairs = defaultdict(list)
+    for r in rows:
+        pairs[r["pair"]].append([at[r["scan"]], round(r["dev_nokern"], 1), round(r["dev_kern"], 1)])
+    return dict(columns=["scan", "dev_nokern", "dev_kern"], scans=scans, pairs=pairs)

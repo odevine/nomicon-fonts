@@ -309,12 +309,14 @@ def main():
     levels = {n: s["edge_level"] for n, s in man["scans"].items()}
     rows = kerning.measure_pairs(scans, levels, man["card_S"], font, shared[0], shared[5])
     (out / "kerning.json").write_text(json.dumps(kerning.summarise(rows), separators=(",", ":")))
+    (out / "kerning_samples.json").write_text(json.dumps(kerning.samples(rows), separators=(",", ":")))
     for face, f in fonts.items():
         if face == prof.primary.name:
             continue
         fu_px = fontfit.face_transform(shared, font, f)[0]
         face_rows = kerning.measure_pairs(scans, levels, man["card_S"], f, fu_px, shared[5], face)
         (out / f"kerning.{face}.json").write_text(json.dumps(kerning.summarise(face_rows), separators=(",", ":")))
+        (out / f"kerning_samples.{face}.json").write_text(json.dumps(kerning.samples(face_rows), separators=(",", ":")))
         (out / f"metrics.{face}.json").write_text(json.dumps(font_metrics(f), indent=1))
 
     other = json.loads((Path(a.compare_session) / "manifest.json").read_text()) if a.compare_session else None
