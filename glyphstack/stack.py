@@ -7,9 +7,11 @@ registered, normalised to a common edge level, averaged over the views of each p
 outliers and averaged
 """
 import json
+import os
 import pickle
 import shutil
 from collections import defaultdict
+from concurrent.futures import as_completed
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from scipy import ndimage as ndi
 
 from . import chunks
 from .contours import UM_PER_PX, edge_rms_um
-from .log import Progress, log, timed
+from .log import Progress, log, pool, timed
 from . import target
 from .pairing import match_map
 from .styles import stem as fname
@@ -379,13 +381,19 @@ def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
     return dict(mean=mean_p, sd=sd, n=nk, loo=loo_kept), pair_dev, keep, loo, devs
 
 
-def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None):
+def _stack_task(regs, keys, spans, levels, asp, folder):
+    """stack_glyph on one glyph's store, for a worker process that has only the store's folder"""
+    return stack_glyph(chunks.Store(regs), keys, spans, levels, asp, folder)
+
+
+def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None):
     """Runs the full stacking over {scan name: {units, scale, card, angle}}
 
     Returns {"stacks": {char: {...}}, "levels": {scan: level}, "aspect": float, "scans": per-scan geometry,
     "instances": manifest rows}. Registered per-unit maps go to workdir/regs and each glyph's stack to
     stacks_dir/<glyph>, default workdir/stacks, with its instances in a chunks.Store. Memory follows one batch of
-    units rather than the largest glyph
+    units rather than the largest glyph. Glyphs are stacked in `workers` processes, default one per core, since the
+    contour measurements hold the GIL
     """
     workdir = Path(workdir)
     (workdir / "regs").mkdir(parents=True, exist_ok=True)
@@ -427,12 +435,21 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None):
     stacks_dir = Path(stacks_dir or workdir / "stacks")
     if stacks_dir.exists():
         shutil.rmtree(stacks_dir)
-    stacks, rows = {}, []
+    stacks, rows, done = {}, [], {}
     prog = Progress("stacking glyphs", len(glyphs))
+    workers = min(workers or os.cpu_count() or 1, len(glyphs))
+    args = lambda ch: (workdir / "regs" / fname(ch), keys_of[ch], spans_of[ch], levels, asp, stacks_dir / fname(ch))
+    if workers > 1:
+        prof = target.get()
+        with pool(workers, target.use, (prof.path,)) as ex:
+            # the largest glyphs first, so the longest task does not start last
+            futs = {ex.submit(_stack_task, *args(ch)): ch for ch in sorted(glyphs, key=lambda c: -len(keys_of[c]))}
+            for f in as_completed(futs):
+                done[futs[f]] = f.result()
+                prog.step(repr(futs[f]))
     for ch in glyphs:
         keys, spans = keys_of[ch], spans_of[ch]
-        R = chunks.Store(workdir / "regs" / fname(ch))
-        st, pair_dev, keep, loo, devs = stack_glyph(R, keys, spans, levels, asp, stacks_dir / fname(ch))
+        st, pair_dev, keep, loo, devs = done[ch] if ch in done else _stack_task(*args(ch))
         cards = sorted({scans[kk[0]]["card"] for (kk, _, _), kp in zip(spans, keep) if kp})
         for i, (kk, a, b) in enumerate(spans):
             members = keys[a:b]
@@ -444,7 +461,11 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None):
                 print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev[i],
             ))
         stacks[ch] = dict(st, n_units=len(keys), n_dropped=int((~keep).sum()), cards=cards)
-        prog.step(f"{ch!r}: {st['n']} instances from {len(cards)} cards, {stacks[ch]['n_dropped']} dropped, LOO IoU {st['loo'].mean():.3f}")
+        note = f"{ch!r}: {st['n']} instances from {len(cards)} cards, {stacks[ch]['n_dropped']} dropped, LOO IoU {st['loo'].mean():.3f}"
+        if ch in done:
+            log.debug(note)
+        else:
+            prog.step(note)
     with_dev = [r for r in rows if r.get("pair_dev_um") is not None]
     devs = np.array([r["pair_dev_um"] for r in with_dev])
     nviews = np.array([len(r["scans"]) for r in with_dev])
