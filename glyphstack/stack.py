@@ -23,7 +23,7 @@ from .log import Progress, log, timed
 from . import target
 from .pairing import match_map
 from .styles import stem as fname
-from .register import ecc_affine, iou, place, pmap, rectified_shape, rectify, register, register_shifts, registered, rotation_scale
+from .register import ecc_affine, ink_box, iou, place, pmap, rectified_shape, rectify, register, register_shifts, registered, rotation_scale
 
 AFFINE_MIN_CC = 0.85
 # units per scan fitted by affine ECC, and per glyph registered for the reference means between passes
@@ -90,10 +90,8 @@ def bootstrap_means(scans, by_char, chars):
 
 def trim(img, margin=24, thr=0.02):
     """The image cropped to its ink plus a margin"""
-    ys, xs = np.nonzero(img > thr)
-    if len(ys) == 0:
-        return img
-    return img[max(ys.min() - margin, 0) : ys.max() + margin + 1, max(xs.min() - margin, 0) : xs.max() + margin + 1]
+    y0, y1, x0, x1 = ink_box(img, margin, thr)
+    return img[y0:y1, x0:x1]
 
 
 def scan_affines(scans, refs, n=AFFINE_SAMPLE):
@@ -226,9 +224,11 @@ def rectify_glyph(scans, M_tie, keys):
 
 def level_for_area(reg, area, lo=0.2, hi=0.8):
     """Coverage level at which a registered unit has the given ink area, by bisection"""
+    # every midpoint lies strictly between lo and hi, so pixels at or below lo never count and pixels above hi always do
+    above, band = int((reg > hi).sum()), reg[(reg > lo) & (reg <= hi)]
     for _ in range(18):
         mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if (reg > mid).sum() > area else (lo, mid)
+        lo, hi = (mid, hi) if above + (band > mid).sum() > area else (lo, mid)
     return (lo + hi) / 2
 
 
@@ -321,9 +321,10 @@ def _instances(R, keys, spans, levels, views=128):
 
 
 def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
-    """Screens and stacks one glyph from its registered units in R, reading the store three or four times
+    """Screens and stacks one glyph from its registered units in R, reading the store once
 
-    Gives the same numbers as stack_instances on the whole glyph, since every sum runs in order in float32. Writes
+    The first pass keeps each printed glyph's view average in memory as float32 for the later passes, one image per
+    printed glyph. Gives the same numbers as stack_instances on the whole glyph, since every sum runs in order in float32. Writes
     stack.npz (mean, sd and the kept instances' leave-one-out IoU) and the kept instances as a chunks.Store under
     folder. Returns the stack, then per printed glyph the view against view deviation, keep flag, leave-one-out
     IoU and deviation from the stack
@@ -331,13 +332,14 @@ def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
     loo_min = target.get()["stack"]["loo_min_iou"] if loo_min is None else loo_min
     n = len(spans)
     sc = lambda a: cv2.resize(a, None, fx=1, fy=asp, interpolation=cv2.INTER_CUBIC)
-    passes = lambda: _instances(R, keys, spans, levels)
-    pair_dev, acc = [None] * n, np.zeros(R.shape, np.float32)
-    for batch in passes():
+    pair_dev, acc, avgs = [None] * n, np.zeros(R.shape, np.float32), []
+    for batch in _instances(R, keys, spans, levels):
         # disagreement between the views of the same printed glyph, before the edge level remap
         for (i, _, a), d in zip(batch, pmap(lambda b: view_dev_um(b[1]), batch)):
             acc += a
             pair_dev[i] = d
+        avgs.append([(i, None, a) for i, _, a in batch])
+    passes = lambda: iter(avgs)
     mean = acc / n
     loo = np.ones(n)
     if n > 2:

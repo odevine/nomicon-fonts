@@ -1,16 +1,29 @@
 """Many same-shaped images kept on disk in compressed chunks, so a glyph with thousands of instances is never held in memory whole"""
+import io
 import json
 import shutil
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 
 CHUNK_BYTES = 64 << 20
+# zlib releases the GIL, so chunks compress and decompress in parallel on these threads
+THREADS = 8
+_POOL = ThreadPoolExecutor(THREADS)
+
+
+def _save(path, a):
+    """Writes a as member a.npy of a zip at zlib level 1, which np.load reads like savez_compressed and writes in half the time"""
+    b = io.BytesIO()
+    np.lib.format.write_array(b, a)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+        z.writestr("a.npy", b.getvalue())
 
 
 class Writer:
-    """Appends images to a store folder, replacing what was there, and compresses full chunks on a background thread
+    """Appends images to a store folder, replacing what was there, and compresses full chunks on background threads
 
     meta is written to the index with the count and shape, for example the key of each image
     """
@@ -21,7 +34,7 @@ class Writer:
             shutil.rmtree(self.folder)
         self.folder.mkdir(parents=True)
         self.buf, self.n, self.shape, self.chunk = [], 0, None, None
-        self.pool, self.pending = ThreadPoolExecutor(1), []
+        self.pending = []
 
     def add(self, img):
         if self.shape is None:
@@ -35,17 +48,21 @@ class Writer:
     def _flush(self):
         if self.buf:
             path, a = self.folder / f"{(self.n - 1) // self.chunk:05d}.npz", np.stack(self.buf)
-            # at most one chunk compressing while the next one fills
-            for f in self.pending:
-                f.result()
-            self.pending = [self.pool.submit(np.savez_compressed, path, a=a)]
+            # at most THREADS chunks compressing while the next one fills
+            self.pending = [f for f in self.pending if not f.done()]
+            while len(self.pending) >= THREADS:
+                self.pending.pop(0).result()
+            self.pending.append(_POOL.submit(_save, path, a))
             self.buf = []
+
+    def _wait(self):
+        for f in self.pending:
+            f.result()
+        self.pending = []
 
     def close(self):
         self._flush()
-        for f in self.pending:
-            f.result()
-        self.pool.shutdown()
+        self._wait()
         (self.folder / "index.json").write_text(json.dumps(dict(n=self.n, chunk=self.chunk, shape=self.shape, dtype=self.dtype.name, **self.meta)))
         return Store(self.folder)
 
@@ -56,7 +73,8 @@ class Writer:
         if exc[0] is None:
             self.close()
         else:
-            self.pool.shutdown()
+            for f in self.pending:
+                f.cancel()
 
 
 class Store:
@@ -89,10 +107,13 @@ class Store:
             yield self[i]
 
     def take(self, idx):
-        """The images at the given indices as one float32 array, in the order given, reading each chunk once"""
+        """The images at the given indices as one float32 array, in the order given, reading each chunk once on the shared threads"""
         idx = np.asarray(idx, int)
         out = np.empty((len(idx), *self.shape), np.float32)
-        for c in np.unique(idx // self.chunk):
+
+        def one(c):
             sel = np.flatnonzero(idx // self.chunk == c)
             out[sel] = self._read(int(c))[idx[sel] % self.chunk]
+
+        list(_POOL.map(one, np.unique(idx // self.chunk)))
         return out

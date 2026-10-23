@@ -34,6 +34,29 @@ def test_level_for_area_recovers_threshold():
     assert abs(stack.level_for_area(ramp, area) - 0.37) < 0.01
 
 
+def test_level_for_area_matches_bisection_over_every_pixel():
+    def full(reg, area, lo=0.2, hi=0.8):
+        for _ in range(18):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if (reg > mid).sum() > area else (lo, mid)
+        return (lo + hi) / 2
+
+    rng = np.random.default_rng(0)
+    for k in range(20):
+        img = blob((k % 5, -k % 4)) * rng.uniform(0.6, 1.0)
+        img[rng.random(img.shape) < 0.05] = rng.choice([0.2, 0.8, 1.0])
+        area = int((img > rng.uniform(0.1, 0.9)).sum())
+        assert stack.level_for_area(img, area) == full(img, area)
+
+
+def test_register_shifts_mean_is_the_mean_of_registered_units():
+    imgs = [blob(s, (160, 140)) for s in [(0, 0), (6, -4), (-7, 3), (3, 7)]]
+    size, shifts, mean = rg.register_shifts(imgs.__getitem__, len(imgs), [i.shape for i in imgs])
+    reg = [rg.registered(img, size, w) for img, w in zip(imgs, shifts)]
+    assert all(rg.iou(reg[0], r) > 0.97 for r in reg)
+    assert np.allclose(np.mean(reg, 0), mean, atol=1e-5)
+
+
 def test_loo_drops_wrong_instance():
     good = [blob((i % 3, 0)) for i in range(8)]
     bad = np.roll(blob(), 30, axis=1)
