@@ -5,6 +5,8 @@ the export is a few short cutaways clipped around the spots where the stack diff
 """
 import argparse
 import json
+import os
+from concurrent.futures import as_completed
 from pathlib import Path
 
 import cv2
@@ -13,7 +15,7 @@ import numpy as np
 from . import font as fnt
 from . import fontfit, kerning, site_crops, stack, styles, sweep, target
 from .contours import UM_PER_PX, contours_at
-from .log import Progress, add_args, announce, log, start, timed
+from .log import Progress, add_args, announce, log, pool, start, timed
 
 LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 SIMPLIFY_FU = 0.5
@@ -171,6 +173,50 @@ def export_glyph(key, stack, rows, fit, g, p, ref, ncut, draws, tol=SIMPLIFY_FU,
     ), sw
 
 
+def session_fits(session, fonts, stacks, min_instances):
+    """The shared transform and each glyph's fit, read from the session's traces.json when it holds every glyph the threshold admits
+
+    Only the shared transform is refitted then, since kerning needs it and traces.json does not keep it. Without the
+    file, or when the threshold admits a glyph the session did not trace, every glyph is fitted again
+    """
+    path = Path(session) / "traces.json"
+    traces = json.loads(path.read_text()) if path.exists() else None
+    if traces is not None:
+        admitted = [k for k, s in stacks.items() if styles.style_of(k) in fonts and s["n"] >= min_instances and ord(styles.char_of(k)) in fonts[styles.style_of(k)].getBestCmap()]
+        missing = [k for k in admitted if k not in traces]
+        if not missing:
+            seed = target.get()["fit"]["seed_glyph"]
+            shared = fontfit.shared_transform(fonts[styles.primary()], stacks[seed]["mean"])
+            return shared, {k: traces[k] for k in admitted}
+        log.info("traces.json lacks %d glyphs at --min-instances %d, fitting every glyph again", len(missing), min_instances)
+    return fontfit.fit_all(fonts, stacks, min_instances)
+
+
+_W = {}
+
+
+def _init_export(session, profile_path, font_paths):
+    """Sets up a worker process with the profile, the fonts and the session's stacks and instance rows"""
+    target.use(profile_path)
+    stacks, man = stack.load(session)
+    _W.update(stacks=stacks, rows=man["instances"], fonts={face: fnt.load_font(p) for face, p in font_paths.items()})
+
+
+def _export_one(key, fit, out, cutaways, draws, simplify, max_instances, sweep_max):
+    """Writes one glyph's document and sweep and returns its row of glyphs.json"""
+    stacks = _W["stacks"]
+    g = fontfit.FontGlyph(_W["fonts"][styles.style_of(key)], styles.char_of(key))
+    p = np.array(fit["p"])
+    sd = fontfit.placed_distance(g, p, stacks[key]["mean"].shape)
+    ref = fontfit.reference_contours(g, p, sd.shape, sd)
+    doc, sw = export_glyph(key, stacks[key], _W["rows"], fit, g, p, ref, cutaways, draws, simplify, max_instances, sd, sweep_max)
+    name = doc["name"]
+    (out / "glyphs" / f"{name}.json").write_text(json.dumps(doc, separators=(",", ":")))
+    (out / "sweep" / f"{name}.json").write_text(json.dumps(sw, separators=(",", ":")))
+    return dict(name=name, char=doc["char"], unicode=doc["unicode"], style=doc["style"], source="scanned", n=doc["n"], cards=len(doc["cards"]), nodes=doc["nodes"],
+                edge_rms_um=doc["edge_rms_um"], iou=doc["iou"], recommended_n=doc["recommended_n"], low_confidence=doc["n"] < CONFIDENT_INSTANCES or len(doc["cards"]) < CONFIDENT_CARDS)
+
+
 def font_metrics(font):
     """Vertical metrics and the space advance of the measuring stick in font units, numbers only"""
     os2 = font["OS/2"]
@@ -216,6 +262,7 @@ def main():
     ap.add_argument("--scans", help="folder with the session's scan PNGs, writes the raw crops and step images for the Stack's pixel layers and Scan to Glyph, skipped when not given")
     ap.add_argument("--draws", type=int, default=40, help="random subsets per N in the sweep")
     ap.add_argument("--sweep-max", type=int, default=SWEEP_MAX, help="run the sweep on at most this many randomly chosen instances per glyph, 0 for all")
+    ap.add_argument("--workers", type=int, help="processes exporting glyphs, one glyph each, default one per core")
     add_args(ap)
     a = ap.parse_args()
     session, out = Path(a.session), Path(a.out)
@@ -229,29 +276,32 @@ def main():
     prof = target.use(a.profile or (rec["path"] if rec and Path(rec["path"]).exists() else rec.get("name", target.DEFAULT)))
     if prof.sha256 != man.get("profile", {}).get("sha256", prof.sha256):
         log.warning("profile %s has changed since the session was run", prof.path)
-    fonts = {face: fnt.load_font(p) for face, p in target.font_paths(a).items()}
+    font_paths = target.font_paths(a)
+    fonts = {face: fnt.load_font(p) for face, p in font_paths.items()}
     font = fonts[prof.primary.name]
     missing = [k for k in stacks if styles.style_of(k) not in fonts]
     if missing:
         log.warning("%d glyphs of a face without a font are not exported, pass --face-font for their face", len(missing))
     with timed("fitting the measuring stick"):
-        shared, fits = fontfit.fit_all(fonts, stacks, a.min_instances)
-    index = []
+        shared, fits = session_fits(session, fonts, stacks, a.min_instances)
     wanted = [k for k in fits if not a.only or styles.char_of(k) in a.only]
     prog = Progress("exporting glyphs", len(wanted), every=5)
-    for key in wanted:
-        fit = fits[key]
-        g = fontfit.FontGlyph(fonts[styles.style_of(key)], styles.char_of(key))
-        p = np.array(fit["p"])
-        sd = fontfit.placed_distance(g, p, stacks[key]["mean"].shape)
-        ref = fontfit.reference_contours(g, p, sd.shape, sd)
-        doc, sw = export_glyph(key, stacks[key], man["instances"], fit, g, p, ref, a.cutaways, a.draws, a.simplify, a.max_instances, sd, a.sweep_max)
-        name = doc["name"]
-        (out / "glyphs" / f"{name}.json").write_text(json.dumps(doc, separators=(",", ":")))
-        (out / "sweep" / f"{name}.json").write_text(json.dumps(sw, separators=(",", ":")))
-        index.append(dict(name=name, char=doc["char"], unicode=doc["unicode"], style=doc["style"], source="scanned", n=doc["n"], cards=len(doc["cards"]), nodes=doc["nodes"],
-                          edge_rms_um=doc["edge_rms_um"], iou=doc["iou"], recommended_n=doc["recommended_n"], low_confidence=doc["n"] < CONFIDENT_INSTANCES or len(doc["cards"]) < CONFIDENT_CARDS))
-        prog.step(repr(key))
+    opts = (out, a.cutaways, a.draws, a.simplify, a.max_instances, a.sweep_max)
+    workers = min(a.workers or os.cpu_count() or 1, max(len(wanted), 1))
+    entries = {}
+    if workers > 1:
+        with pool(workers, _init_export, (session, prof.path, font_paths)) as ex:
+            # the largest glyphs first, so the longest task does not start last
+            futs = {ex.submit(_export_one, k, fits[k], *opts): k for k in sorted(wanted, key=lambda k: -stacks[k]["n"])}
+            for f in as_completed(futs):
+                entries[futs[f]] = f.result()
+                prog.step(repr(futs[f]))
+    else:
+        _W.update(stacks=stacks, rows=man["instances"], fonts=fonts)
+        for key in wanted:
+            entries[key] = _export_one(key, fits[key], *opts)
+            prog.step(repr(key))
+    index = [entries[k] for k in wanted]
     (out / "glyphs.json").write_text(json.dumps(index, indent=1))
 
     # kerning from the cached per-scan units, read one scan at a time
