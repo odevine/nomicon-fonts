@@ -110,7 +110,7 @@ def main():
     ap.add_argument("--no-tie", action="store_true", help="fit each scan's affine on its own instead of tying it across a card's two scans")
     ap.add_argument("--min-instances", type=int, default=12, help="fit and trace glyphs with at least this many instances")
     ap.add_argument("--skip-gate", action="store_true", help="continue even when the calibration gate fails")
-    ap.add_argument("--workers", type=int, help="processes for extraction, one card each, default one per core")
+    ap.add_argument("--workers", type=int, help="processes for extraction, one card each, and for stacking, one glyph each, default one per core")
     add_args(ap)
     a = ap.parse_args()
     out = Path(a.out)
@@ -138,7 +138,7 @@ def main():
     fonts = {st: font.load_font(p) for st, p in font_paths.items()}
     with timed("extraction and labelling"):
         scans = extract_all(rows, out / "work", font_paths, a.workers)
-    result = stack.build(scans, out / "work", iterations=a.iterations, tie=not a.no_tie, stacks_dir=out / "stacks")
+    result = stack.build(scans, out / "work", iterations=a.iterations, tie=not a.no_tie, stacks_dir=out / "stacks", workers=a.workers)
     result["profile"] = dict(name=prof.name, path=prof.path, sha256=prof.sha256)
     stack.save(result, out)
     with timed("tracing"):

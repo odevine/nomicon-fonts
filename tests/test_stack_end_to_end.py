@@ -51,6 +51,15 @@ def test_build_and_save_round_trip(tmp_path):
     assert np.abs(stacks["o"]["inst"].take(range(20)).mean(0) - stacks["o"]["mean"]).max() < 1e-2
 
 
+def test_stacking_in_processes_matches_stacking_in_this_process(tmp_path):
+    a = stack.build(synthetic_scans(), tmp_path / "a", iterations=1, workers=1)
+    b = stack.build(synthetic_scans(), tmp_path / "b", iterations=1, workers=2)
+    for ch in a["stacks"]:
+        for k in ("mean", "sd", "loo"):
+            assert np.array_equal(a["stacks"][ch][k], b["stacks"][ch][k])
+    assert a["instances"] == b["instances"]
+
+
 def test_every_view_of_a_printed_glyph_joins_one_instance(tmp_path):
     res = stack.build(synthetic_scans(angles=(0, 15, 90, 105)), tmp_path / "work", iterations=1)
     assert res["stacks"]["o"]["n"] == 20
