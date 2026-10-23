@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from scipy import ndimage as ndi
 
-from . import target
+from . import target, texture
 from .log import log, timed
 from .scan import load_gray
 
@@ -217,11 +217,17 @@ def extract_scan(path, angle=0):
     """Loads a scan, crops the card, turns it upright from its counterclockwise angle in the scan image and returns its units and levels
 
     For a card turned by other than quarter turns, `to_up` maps the quarter-turned native crop to the upright crop
-    and every unit also carries its native coverage
+    and every unit also carries its native coverage. The profile's texture settings are applied once the card is
+    found and turned, to the upright and the native pixels alike, since flattening lifts the bed around the card
+    to the paper level the outline is told apart from
     """
     with timed(f"extracting {Path(path).name}"):
         crop, origin = card_crop(load_gray(path))
         crop, native, to_up = upright(crop, angle, Path(path).name)
+        if texture.active():
+            same = native is crop
+            crop = texture.prepare(crop)
+            native = crop if same else texture.prepare(native)
         lab, comps = segment(crop)
         kept = in_regions(comps, crop.shape)
         paper, ink, allink, ring = scan_levels(crop, lab, comps, kept)

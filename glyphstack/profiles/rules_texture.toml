@@ -1,0 +1,111 @@
+# The rules face as in rules.toml, read from text boxes printed over a gradient, a tint or faint art. The texture
+# section divides out the local paper level and averages out a strong halftone screen, and the templates section
+# searches the print scale by the number of labelled units and relabels against the card's own letterforms
+name = "rules_texture"
+
+# The first face is the primary one: its glyph keys are the bare character, and the print scale and the shared
+# fit come from it. Other faces key their glyphs with `prefix`, start their cache files with `stem` and end their
+# site names with `suffix`. `full_name` is the face's font name, which also labels it in the scan list spreadsheet.
+# Font files are given on the command line, never here, with --font for the primary face and --face-font NAME=PATH
+# for the others
+[[faces]]
+name = "regular"
+full_name = "Nomicon Rules"
+
+[[faces]]
+name = "italic"
+full_name = "Nomicon Rules Italic"
+prefix = "i:"
+suffix = "_it"
+stem = "it_"
+
+# Parts of the upright card crop to read, as x, y, w, h fractions of it. Components outside every region are not
+# made into units, though their ink still masks neighbours. Rules text needs no region of its own because the
+# templates reject the title, type line and mana symbols
+[[regions]]
+name = "card"
+box = [0.0, 0.0, 1.0, 1.0]
+
+[paper]
+# scan: one paper and one ink level for the whole scan. local: each unit takes the paper level of the ring around
+# its own ink, for type printed on frames whose colour changes across the card
+mode = "scan"
+# the ring around the ink that paper is measured in, as dilation steps from the ink in scan px
+ring_px = [8, 18]
+# erosion steps into the ink for the solid ink level
+core_px = 4
+# fewest ring pixels a local paper level needs, below this a unit takes the scan's level
+local_min_px = 30
+# how far around a unit's box the local ring is looked for, in scan px
+local_window_px = 24
+# coverage at or below the first value reads as paper and at or above the second as solid ink, with the range
+# between stretched to 0 to 1. The floor keeps the halftone texture behind the text out of the units
+coverage_clip = [0.25, 0.75]
+
+[segment]
+# grey level below which a pixel is ink, after a 1.2 px Gaussian blur
+ink_level = 120
+# component size limits in scan px
+min_area = 150
+min_height = 8
+max_size = 150
+# a small component above a tall one joins it, for the dots of i and j
+dot_max_area = 700
+dot_max_box = 24
+dot_stem_min_height = 30
+dot_max_gap = 25
+
+[templates]
+charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ"
+# 4x grid px per em at print scale 1.0, vertical aspect and ink spread in grid px, from the pilot's solo scan `e`
+px_per_em = 591.72
+aspect = 1.0147
+ink_spread = 1.55
+# print scales searched relative to px_per_em
+scale_range = [0.80, 1.06]
+min_iou = 0.85
+min_margin = 0.10
+# top: the scale whose sample of 100 units has the best mean of its 25 best overlaps. count: the scale at which the
+# most units are labelled, which stays on the peak when texture lowers every overlap
+scale_search = "count"
+# rounds of labelling again against templates learned from the card's kept units, from characters with at least
+# self_min_units of them
+self_rounds = 1
+self_min_units = 3
+
+[texture]
+# divide the card by its local paper level, the grey closing with a disc of envelope_px blurred by envelope_blur,
+# and set paper to paper_level, which keeps the segment ink_level at the share of paper it has on a plain box
+flatten = true
+envelope_px = 41
+envelope_blur = 10.0
+paper_level = 216.0
+# grey level of solid ink, for the paper to ink range the screen contrast is measured against
+ink_level = 25.0
+# Gaussian blur in scan px that averages out a halftone screen of about 6 px period, 0 for none
+descreen_sigma = 1.5
+# screen contrast, the high pass rms around the ink over the paper to ink range, below which pixels stay sharp and
+# above which they take the blur in full. A plain box reads about 0.08, art or a dark gradient 0.13 to 0.16
+descreen_contrast = [0.09, 0.12]
+
+[geometry]
+# scan geometry is estimated from the most frequent characters of the primary face in this pool
+pool = "abcdefghijklmnopqrstuvwxyz"
+count = 13
+
+[stack]
+# a glyph is stacked once it has this many units and half as many printed copies
+min_units = 16
+loo_min_iou = 0.85
+
+[fit]
+# the designed glyph fitted freely to its stack, whose size, aspect, rotation and ink spread every glyph then shares
+seed_glyph = "e"
+# starting scale, aspect, rotation, x, y and ink spread
+seed = [0.592, 1.0, 0.0, 0.0, 0.0, 1.5]
+scale_bounds = [0.4, 0.8]
+
+[site]
+# the glyph and card the Scan to Glyph sequence is drawn from
+step_glyph = "e"
+step_card = "ReefWorm"

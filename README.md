@@ -79,6 +79,8 @@ A profile lists the typeface's faces. The first is the primary face: its glyph k
 
 `[[regions]]` name the parts of the card to read, as fractions of the upright card crop. Components outside every region are not made into units, though their ink still masks neighbouring glyphs, and the scan's paper and ink levels are measured inside the regions. `[paper] mode = "local"` gives each unit the paper level of the ring around its own ink, for type printed on frames whose colour changes across the card, such as a title bar and a type line.
 
+`rules_texture.toml` reads the same face from text boxes printed over a gradient, a tint or faint art. Its `[texture]` section divides the card by its local paper level and blurs away a halftone screen where the screen is strong against the paper to ink range, leaving a plain box sharp, and `glyphstack/texture.py` documents each setting. Its `[templates]` section sets `scale_search = "count"`, which takes the print scale at which the most units are labelled, and `self_rounds = 1`, which labels the units again against templates learned from the card's own kept units. A profile without these settings reads as before.
+
 The other sections hold the settings tuned to the type: the segmentation threshold and size limits, the template character set, em size and print scale range, the matching thresholds, the characters scan geometry is estimated from, the stacking thresholds, the glyph the shared fit starts from with its starting values, and the glyph and card the site's step figure uses. `rules.toml` documents each one.
 
 ## Exporting data for the site

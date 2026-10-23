@@ -132,18 +132,74 @@ def find_scale(units, templates, seed=0, lo=None, hi=None, around=None):
     return round(float(fine), 3)
 
 
+def count_scale(units, templates, lo=None, hi=None, around=None):
+    """The print scale at which the most units are labelled, in steps of 0.02 and then 0.01 around the best
+
+    This reads every unit, so it is slower than find_scale, and it stays on the peak when a textured box lowers every
+    unit's overlap and flattens the sample's mean of its best overlaps. With `around`, only that scale and its
+    neighbours 0.01 either side are tried
+    """
+    rng_lo, rng_hi = target.get()["templates"]["scale_range"]
+    lo, hi = rng_lo if lo is None else lo, rng_hi if hi is None else hi
+    n = lambda s: len(label(units, templates.at(round(float(s), 3)), round(float(s), 3)))
+    if around is not None:
+        return round(float(max(np.round(around + np.array([-0.01, 0, 0.01]), 3), key=n)), 3)
+    coarse = max(np.arange(lo, hi + 1e-9, 0.02), key=n)
+    return round(float(max(np.arange(coarse - 0.01, coarse + 0.0101, 0.01), key=n)), 3)
+
+
+def card_templates(kept, base, min_units):
+    """The templates with each character that has min_units or more kept units replaced by their mean mask
+
+    Each unit's 4x mask is centred on its centre of mass and the masks are averaged and cut at one half, so the
+    template takes the card's own letterforms and ink spread in place of the measuring stick font's
+    """
+    by = {}
+    for u in kept:
+        by.setdefault(u["ch"], []).append(u)
+    out = dict(base)
+    for ch, us in by.items():
+        ms = [m for m in (unit_mask4(u["cov"]) for u in us) if m is not None]
+        if len(ms) < min_units:
+            continue
+        H, W = max(m.shape[0] for m in ms) + 16, max(m.shape[1] for m in ms) + 16
+        acc = np.zeros((H, W), np.float32)
+        for m in ms:
+            cy, cx = ndi.center_of_mass(m)
+            acc += cv2.warpAffine(m, np.float32([[1, 0, W / 2 - cx], [0, 1, H / 2 - cy]]), (W, H), flags=cv2.INTER_LINEAR)
+        ys, xs = np.nonzero(acc / len(ms) > 0.5)
+        if len(ys) == 0:
+            continue
+        mk = (acc / len(ms) > 0.5)[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1].astype(np.float32)
+        out[ch] = dict(mask=mk, w=mk.shape[1] / UP, h=mk.shape[0] / UP)
+    return out
+
+
 def identify(units, templates, scale=None, around=None):
     """Labels units with the best template, returns (kept units, card scale)
 
     Units below the profile's min_iou or within its min_margin of a different character are dropped, which for the rules
     face also removes the bold type line and mana symbols, and any face without a font. A character that matches two faces
-    equally takes the face of its neighbours. The scale is searched on the primary face only, or only next to `around`
+    equally takes the face of its neighbours. The scale is searched on the primary face only, or only next to `around`,
+    by the profile's scale_search: top, the mean of a sample's best overlaps, or count, the most labelled units. With
+    self_rounds set, the units are labelled again that many times against templates learned from the card's own kept units
     """
+    cfg = target.get()["templates"]
     if not scale:
-        log.info("searching print scale from a sample of %d units%s", min(100, len(units)), "" if around is None else f" near {around:.3f}")
-        scale = find_scale(units, templates, around=around)
+        mode = cfg.get("scale_search", "top")
+        log.info("searching print scale by %s%s", "the best overlaps of a sample of %d units" % min(100, len(units)) if mode == "top" else "labelled units",
+                 "" if around is None else f" near {around:.3f}")
+        scale = (count_scale if mode == "count" else find_scale)(units, templates, around=around)
         log.info("print scale %.3f", scale)
     t = templates.at(scale)
+    kept = label(units, t, scale)
+    for _ in range(cfg.get("self_rounds", 0)):
+        kept = label(units, card_templates(kept, t, cfg.get("self_min_units", 3)), scale)
+    return kept, scale
+
+
+def label(units, t, scale):
+    """Labels units against one template set at the given scale, keeping those that clear min_iou and min_margin"""
     min_iou, min_margin = target.get()["templates"]["min_iou"], target.get()["templates"]["min_margin"]
     kept, tied = [], []
     for u, c in zip(units, pmap(lambda u: classify(u["cov"], t), units)):
@@ -157,8 +213,7 @@ def identify(units, templates, scale=None, around=None):
         same = [r for r in c[1:] if styles.char_of(r[1]) == styles.char_of(c[0][1]) and c[0][0] - r[0] < min_margin]
         unit = dict(u, ch=c[0][1], iou=c[0][0], margin=margin, scale=scale)
         (tied if same else kept).append(unit)
-    kept += resolve_faces(tied, kept)
-    return kept, scale
+    return kept + resolve_faces(tied, kept)
 
 
 def resolve_faces(tied, kept):
