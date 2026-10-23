@@ -17,8 +17,7 @@ from .contours import UM_PER_PX, contours_at
 from .log import Progress, log, timed
 from .register import UP, com_canvas, rectify, register
 from .scan import load_gray
-from . import chunks
-from .stack import ScanUnits, fname
+from .stack import ScanUnits, render_view
 
 CONTEXT = (240, 144)
 PIXEL_PAD = 24
@@ -108,7 +107,7 @@ class Session:
         self.man = json.loads((self.folder / "manifest.json").read_text())
         self.traces = json.loads((self.folder / "traces.json").read_text())
         self.scans = ScanUnits(self.folder)
-        self._card, self._regs = None, {}
+        self._card, self._places = None, None
 
     def frame(self, scan):
         """The card crop of a scan in the upright frame the units were cut in, loaded once and kept for the last scan used"""
@@ -118,12 +117,13 @@ class Session:
         return self._card[1]
 
     def reg(self, ch, scan, unit):
-        """The registered 4x coverage of one unit of a glyph, from the glyph's chunk store"""
-        # one glyph's store at a time, so the chunk it keeps is the only one in memory
-        if self._regs.get("ch") != ch:
-            R = chunks.Store(self.folder / "work" / "regs" / fname(ch))
-            self._regs = dict(ch=ch, R=R, at={tuple(k): i for i, k in enumerate(R.index["keys"])})
-        return self._regs["R"][self._regs["at"][(scan, unit)]]
+        """The registered 4x coverage of one view of a glyph, rendered again from its placement as the session fused it"""
+        if self._places is None:
+            self._places = json.loads((self.folder / "work" / "fused" / "places.json").read_text())
+        pl = self._places[ch]
+        oy, ox, tx, ty = next(v[2:] for v in pl["views"] if v[0] == scan and v[1] == unit)
+        M = np.array(self.man["scans"][scan]["M"])
+        return render_view(self.scans, (scan, unit), M, tuple(pl["size"]), (oy, ox), np.float32([[1, 0, tx], [0, 1, ty]]))
 
     def instance_rows(self, ch):
         return [r for r in self.man["instances"] if r["char"] == ch and r["kept"]]

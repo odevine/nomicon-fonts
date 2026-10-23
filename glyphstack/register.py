@@ -95,13 +95,14 @@ def warp_to(ref, img, w):
     return cv2.warpAffine(img, w, (ref.shape[1], ref.shape[0]), flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP, borderValue=0).clip(0, 1)
 
 
-def register_shifts(load, n, shapes, iters=3, batch=64):
+def register_shifts(load, n, shapes, iters=3, batch=64, size=None):
     """The canvas size, each image's translation and the mean that register() arrives at, holding one batch of images at a time
 
-    load(i) gives image i, shapes are the images' shapes. Each image is loaded once per pass, iters + 1 times in all.
-    Each pass runs ECC on the mean's ink plus a margin, starting from the image's shift in the pass before
+    load(i) gives image i, shapes are the images' shapes, and size fixes the canvas instead of sizing it from them.
+    Each image is loaded once per pass, iters + 1 times in all. Each pass runs ECC on the mean's ink plus a margin,
+    starting from the image's shift in the pass before
     """
-    size = canvas_size(shapes)
+    size = size or canvas_size(shapes)
     offsets = [None] * n
 
     def canvas(i):
@@ -136,9 +137,9 @@ def register_shifts(load, n, shapes, iters=3, batch=64):
     return size, shifts, ref
 
 
-def registered(img, size, w):
-    """One image as register_shifts placed it, from its shift"""
-    return warp_to(np.empty(size, np.float32), on_canvas(img, size), w)
+def registered(img, size, w, offset=None):
+    """One image as register_shifts placed it, from its shift, or placed at offset and then shifted when offset is given"""
+    return warp_to(np.empty(size, np.float32), on_canvas(img, size, offset), w)
 
 
 def register(imgs, iters=3):
