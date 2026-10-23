@@ -34,8 +34,29 @@ class FontGlyph:
     def signed_dist(self, prm, pts):
         """Signed distance in grid px from pts to the placed outline, positive outside"""
         poly = self.to_img(prm)
-        dist = cKDTree(np.vstack(poly)).query(pts)[0]
-        return np.where(fnt.inside_evenodd(poly, pts), -dist, dist)
+        return np.where(fnt.inside_evenodd(poly, pts), -1, 1) * outline_dist(poly, pts)
+
+
+def outline_dist(poly, pts):
+    """Unsigned distance in grid px from pts to closed polylines, measured to their segments
+
+    Measuring to segments rather than vertices keeps the distance smooth in the placement, so the fit does not
+    settle in the small dips the vertex spacing leaves
+    """
+    V = np.vstack(poly)
+    starts = np.cumsum([0] + [len(c) for c in poly])
+    j = cKDTree(V).query(pts)[1]
+    ci = np.searchsorted(starts, j, side="right") - 1
+    s0, n = starts[ci], np.diff(starts)[ci]
+    dist = np.full(len(pts), np.inf)
+    # with evenly spaced vertices the nearest point lies on one of the two segments meeting at the nearest vertex
+    for off in (-1, 0):
+        a = s0 + (j + off - s0) % n
+        b = s0 + (j + off + 1 - s0) % n
+        A, d = V[a], V[b] - V[a]
+        t = np.clip(((pts - A) * d).sum(1) / np.maximum((d * d).sum(1), 1e-12), 0, 1)
+        dist = np.minimum(dist, np.linalg.norm(pts - A - t[:, None] * d, axis=1))
+    return dist
 
 
 def init_translation(g, pts, prm):
@@ -91,7 +112,7 @@ def placed_distance(g, p, shape, band=12):
         cv2.polylines(edge, pts, True, 1, 1, cv2.LINE_8, shift=4)
     yy, xx = np.nonzero(cv2.dilate(edge, np.ones((2 * band + 1, 2 * band + 1), np.uint8)))
     d = np.full((H, W), float(band))
-    d[yy, xx] = cKDTree(np.vstack(poly)).query(np.stack([xx, yy], 1).astype(float))[0]
+    d[yy, xx] = outline_dist(poly, np.stack([xx, yy], 1).astype(float))
     return np.where(inside > 0, -d, d)
 
 
