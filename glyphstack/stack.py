@@ -25,7 +25,7 @@ from .log import Progress, log, pool, timed
 from . import target
 from .pairing import match_map
 from .styles import stem as fname
-from .register import ecc_affine, ink_box, iou, place, pmap, rectified_shape, rectify, register, register_shifts, registered, rotation_scale
+from .register import canvas_size, com_offset, ecc_affine, ink_box, iou, place, pmap, rectified_shape, rectify, register, register_shifts, registered, rotation_scale
 
 AFFINE_MIN_CC = 0.85
 # units per scan fitted by affine ECC, and per glyph registered for the reference means between passes
@@ -276,30 +276,6 @@ def view_dev_um(views, cap=8):
     return float(np.sqrt((d**2).mean() * 2 * (n - 1) / n)) if len(d) else None
 
 
-def register_glyph(scans, M_tie, keys, order, folder, batch=64):
-    """Registers the given units of one glyph into a chunk store at folder, returns each unit's edge level in store order
-
-    The running means are summed in the order of keys, which fixes the result, and the store holds keys[i] for i in order
-    """
-    load = lambda i: grid_unit(scans, keys[i], M_tie[keys[i][0]])
-    shapes = [rectified_shape(scans[n]["units"][k], scans[n]["scale"], M_tie[n]) for n, k in keys]
-    size, shifts, mean = register_shifts(load, len(keys), shapes)
-    area = (mean > 0.5).sum()
-
-    def one(i):
-        r = registered(load(i), size, shifts[i])
-        # the level is measured on the float32 image, before the store rounds it to float16
-        return r, level_for_area(r, area)
-
-    levels = []
-    with chunks.Writer(folder, meta=dict(keys=[list(keys[i]) for i in order])) as w:
-        for b in range(0, len(order), batch):
-            for r, t in pmap(one, order[b : b + batch]):
-                w.add(r)
-                levels.append(t)
-    return levels
-
-
 def _instances(R, keys, spans, levels, views=128):
     """Batches of (span index, raw views, mean of the remapped views), one per printed glyph, read from the store in order
 
@@ -323,54 +299,62 @@ def _instances(R, keys, spans, levels, views=128):
 
 
 def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
-    """Screens and stacks one glyph from its registered units in R, reading the store once
+    """Screens and stacks one glyph from its registered views in R, averaging each printed glyph's remapped views first
 
-    The first pass keeps each printed glyph's view average in memory as float32 for the later passes, one image per
-    printed glyph. Gives the same numbers as stack_instances on the whole glyph, since every sum runs in order in float32. Writes
-    stack.npz (mean, sd and the kept instances' leave-one-out IoU) and the kept instances as a chunks.Store under
-    folder. Returns the stack, then per printed glyph the view against view deviation, keep flag, leave-one-out
-    IoU and deviation from the stack
+    Gives the same numbers as stack_instances on the view averages, since every sum runs in order in float32. Returns
+    what stack_fused returns, with the view against view deviation of each printed glyph measured here
     """
-    loo_min = target.get()["stack"]["loo_min_iou"] if loo_min is None else loo_min
-    n = len(spans)
-    sc = lambda a: cv2.resize(a, None, fx=1, fy=asp, interpolation=cv2.INTER_CUBIC)
-    pair_dev, acc, avgs = [None] * n, np.zeros(R.shape, np.float32), []
+    pair_dev, avgs = [None] * len(spans), []
     for batch in _instances(R, keys, spans, levels):
         # disagreement between the views of the same printed glyph, before the edge level remap
-        for (i, _, a), d in zip(batch, pmap(lambda b: view_dev_um(b[1]), batch)):
-            acc += a
+        for (i, _, _), d in zip(batch, pmap(lambda b: view_dev_um(b[1]), batch)):
             pair_dev[i] = d
-        avgs.append([(i, None, a) for i, _, a in batch])
-    passes = lambda: iter(avgs)
+        avgs.append([a for _, _, a in batch])
+    return stack_fused([a for b in avgs for a in b], pair_dev, asp, folder, loo_min)
+
+
+def stack_fused(inst, pair_dev, asp, folder, loo_min=None):
+    """Screens and stacks one glyph from its fused instances, one float32 image per printed glyph in order
+
+    Gives the same numbers as stack_instances, since every sum runs in order in float32. Writes stack.npz (mean, sd
+    and the kept instances' leave-one-out IoU) and the kept instances as a chunks.Store under folder. Returns the
+    stack, then per printed glyph the given view against view deviation, keep flag, leave-one-out IoU and deviation
+    from the stack
+    """
+    loo_min = target.get()["stack"]["loo_min_iou"] if loo_min is None else loo_min
+    n = len(inst)
+    shape = inst[0].shape
+    sc = lambda a: cv2.resize(a, None, fx=1, fy=asp, interpolation=cv2.INTER_CUBIC)
+    acc = np.zeros(shape, np.float32)
+    for a in inst:
+        acc += a
     mean = acc / n
     loo = np.ones(n)
     if n > 2:
-        for batch in passes():
-            for (i, _, _), v in zip(batch, pmap(lambda b: iou(b[2], (mean * n - b[2]) / (n - 1)), batch)):
-                loo[i] = v
+        loo = np.array(pmap(lambda a: iou(a, (mean * n - a) / (n - 1)), inst))
     keep = loo >= loo_min
     nk = int(keep.sum())
     if not keep.all():
-        acc = np.zeros(R.shape, np.float32)
-        for batch in passes():
-            for i, _, a in batch:
-                if keep[i]:
-                    acc += a
+        acc = np.zeros(shape, np.float32)
+        for a, k in zip(inst, keep):
+            if k:
+                acc += a
         mean = acc / nk
     redo_loo = not keep.all() and nk > 2
     loo_kept = loo[keep] if keep.all() else np.ones(nk)
     mean_p = sc(mean)
-    def kept(b):
-        a = b[2]
+
+    def kept(a):
         ap = sc(a)
         return ap, edge_rms_um(ap, mean_p), iou(a, (mean * nk - a) / (nk - 1)) if redo_loo else None
 
-    devs, sq, k = [None] * n, np.zeros(R.shape, np.float32), 0
+    devs, sq, k = [None] * n, np.zeros(shape, np.float32), 0
+    idx = np.flatnonzero(keep)
     with chunks.Writer(folder / "inst") as w:
-        for batch in passes():
-            batch = [b for b in batch if keep[b[0]]]
-            for (i, _, a), (ap, dev, li) in zip(batch, pmap(kept, batch)):
-                sq += (a - mean) ** 2
+        for b in range(0, len(idx), 128):
+            sel = idx[b : b + 128]
+            for i, (ap, dev, li) in zip(sel, pmap(lambda i: kept(inst[i]), sel)):
+                sq += (inst[i] - mean) ** 2
                 devs[i] = dev
                 if redo_loo:
                     loo_kept[k] = li
@@ -381,22 +365,128 @@ def stack_glyph(R, keys, spans, levels, asp, folder, loo_min=None):
     return dict(mean=mean_p, sd=sd, n=nk, loo=loo_kept), pair_dev, keep, loo, devs
 
 
-def _stack_task(regs, keys, spans, levels, asp, folder):
-    """stack_glyph on one glyph's store, for a worker process that has only the store's folder"""
-    return stack_glyph(chunks.Store(regs), keys, spans, levels, asp, folder)
+# The fused path runs in four stages, each one task per card or per glyph, so each fits a process pool.
+# A registers each printed glyph's views against each other within its card and stores their average.
+# B registers a glyph's printed glyph averages against each other, which gives each printed glyph a shift and the glyph its ink area.
+# C renders every view once through both shifts, sets each scan's edge level and stores each printed glyph's fused instance.
+# D screens and stacks each glyph's fused instances.
+
+
+def render_view(scans, nk, M, size, offset, w):
+    """One view rectified and placed on its glyph's canvas at an integer offset, then shifted by w, two resamples in all"""
+    return registered(grid_unit(scans, nk, M), size, w, offset)
+
+
+def _card_groups(scans, M_tie, groups, sizes, folder):
+    """Stage A for one card: per glyph, each printed glyph's views registered against each other
+
+    groups is {glyph: [[view keys of one printed glyph], ...]}. Each printed glyph's average is stored under
+    folder/<glyph>/means. Returns {glyph: [[(offset, shift) per view] per printed glyph]}
+    """
+    out = {}
+    for ch, gs in groups.items():
+        size, res = sizes[ch], []
+        with chunks.Writer(folder / fname(ch) / "means", np.float32) as w:
+            for keys in gs:
+                rect = [grid_unit(scans, nk, M_tie[nk[0]]) for nk in keys]
+                _, shifts, mean = register_shifts(rect.__getitem__, len(rect), None, size=size)
+                res.append([(com_offset(r, size), sh) for r, sh in zip(rect, shifts)])
+                w.add(mean)
+        out[ch] = res
+    return out
+
+
+def _glyph_shifts(folders, size):
+    """Stage B for one glyph: its printed glyph averages from each card's store, in card order, registered against each other
+
+    Returns (offset, shift) per printed glyph and the ink area of the glyph's mean
+    """
+    stores = [chunks.Store(f) for f in folders]
+    at = [(s, i) for s in stores for i in range(len(s))]
+    load = lambda j: at[j][0][at[j][1]]
+    _, shifts, mean = register_shifts(load, len(at), None, size=size)
+    offsets = [com_offset(load(j), size) for j in range(len(at))]
+    return list(zip(offsets, shifts)), int((mean > 0.5).sum())
+
+
+def _compose(view, group):
+    """A view's placement and shift on the glyph canvas, from its place within its printed glyph and its printed glyph's place in the glyph"""
+    (oy, ox), w = view
+    (gy, gx), s = group
+    w = w.copy()
+    w[:, 2] += s[:, 2]
+    return (oy + gy, ox + gx), w
+
+
+def _card_fuse(scans, M_tie, groups, sizes, places, areas, folder):
+    """Stage C for one card: every view rendered through both shifts, the card's per-scan edge levels, and each printed glyph's fused instance
+
+    places is {glyph: [[(offset, shift) per view] per printed glyph]} composed from stages A and B. Each scan's level
+    is the median over its views of the coverage level that gives the view its glyph's ink area. Fused instances, the
+    mean of each printed glyph's views remapped by their scan's level, go to folder/<glyph>/inst. Returns the levels
+    and {glyph: [view against view deviation per printed glyph]}
+    """
+    render = lambda ch, nk, pl: render_view(scans, nk, M_tie[nk[0]], sizes[ch], *pl)
+    per_scan = defaultdict(list)
+    for ch, gs in groups.items():
+        jobs = [(nk, pl) for keys, pls in zip(gs, places[ch]) for nk, pl in zip(keys, pls)]
+        for (nk, _), t in zip(jobs, pmap(lambda j: level_for_area(render(ch, *j), areas[ch]), jobs)):
+            per_scan[nk[0]].append(t)
+    levels = {n: float(np.median(v)) for n, v in per_scan.items()}
+
+    def fuse(ch, keys, pls):
+        views = [render(ch, nk, pl) for nk, pl in zip(keys, pls)]
+        # disagreement between the views of the same printed glyph, before the edge level remap
+        return view_dev_um(views), np.mean([remap(v, levels[nk[0]]) for nk, v in zip(keys, views)], 0)
+
+    devs = {}
+    for ch, gs in groups.items():
+        res = pmap(lambda kp: fuse(ch, *kp), list(zip(gs, places[ch])))
+        with chunks.Writer(folder / fname(ch) / "inst", np.float32) as w:
+            for _, a in res:
+                w.add(a)
+        devs[ch] = [d for d, _ in res]
+    return levels, devs
+
+
+def _glyph_stack(folders, pair_dev, asp, folder):
+    """Stage D for one glyph: its fused instances from each card's store, in card order, screened and stacked"""
+    inst = [a for f in folders for a in chunks.Store(f).take(range(len(chunks.Store(f))))]
+    return stack_fused(inst, pair_dev, asp, folder)
+
+
+def _map(fn, tasks, workers, label):
+    """fn(*task) for each task, in a process pool of `workers` with the largest task first, or here when workers is 1
+
+    tasks is a list of (size, args). Returns the results in the order of tasks
+    """
+    out = [None] * len(tasks)
+    prog = Progress(label, len(tasks))
+    if workers > 1 and len(tasks) > 1:
+        with pool(min(workers, len(tasks)), target.use, (target.get().path,)) as ex:
+            futs = {ex.submit(fn, *args): i for i, (_, args) in sorted(enumerate(tasks), key=lambda t: -t[1][0])}
+            for f in as_completed(futs):
+                out[futs[f]] = f.result()
+                prog.step()
+    else:
+        for i, (_, args) in enumerate(tasks):
+            out[i] = fn(*args)
+            prog.step()
+    return out
 
 
 def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None):
     """Runs the full stacking over {scan name: {units, scale, card, angle}}
 
     Returns {"stacks": {char: {...}}, "levels": {scan: level}, "aspect": float, "scans": per-scan geometry,
-    "instances": manifest rows}. Registered per-unit maps go to workdir/regs and each glyph's stack to
-    stacks_dir/<glyph>, default workdir/stacks, with its instances in a chunks.Store. Memory follows one batch of
-    units rather than the largest glyph. Glyphs are stacked in `workers` processes, default one per core, since the
-    contour measurements hold the GIL
+    "instances": manifest rows}. Each printed glyph's views are fused within their card into one instance under
+    workdir/fused, and each glyph's stack goes to stacks_dir/<glyph>, default workdir/stacks, with its instances in a
+    chunks.Store. The per-card and per-glyph stages run in `workers` processes, default one per core
     """
     workdir = Path(workdir)
-    (workdir / "regs").mkdir(parents=True, exist_ok=True)
+    fused = workdir / "fused"
+    if fused.exists():
+        shutil.rmtree(fused)
     by_char = units_by_char(scans)
     achars = chars or affine_chars(by_char)
     log.info("%d scans, %d units, %d glyph kinds, geometry from %s", len(scans), sum(len(s["units"]) for s in scans.values()), len(by_char), achars)
@@ -415,44 +505,55 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
     n_groups = {c: len({group_of.get(nk, nk) for nk in v}) for c, v in by_char.items()}
     min_units = target.get()["stack"]["min_units"]
     glyphs = [c for c, v in by_char.items() if len(v) >= min_units and n_groups[c] >= min_units // 2]
-    # each glyph's store holds its units in printed glyph order, so the views of one printed glyph sit together
-    spans_of, keys_of, per_scan, levels_of = {}, {}, defaultdict(list), {}
-    prog = Progress("registering glyphs", len(glyphs))
+    workers = workers or os.cpu_count() or 1
+
+    # each printed glyph's views, per card and glyph, in the order the views first appear
+    cards = sorted({s["card"] for s in scans.values()})
+    groups = {c: {ch: [] for ch in glyphs} for c in cards}
     for ch in glyphs:
-        groups = defaultdict(list)
+        by_group = defaultdict(list)
         for key in by_char[ch]:
-            groups[group_of.get(key, key)].append(key)
-        keys_of[ch] = [key for g in groups.values() for key in g]
-        ends = np.cumsum([len(g) for g in groups.values()])
-        spans_of[ch] = [(kk, int(e - len(g)), int(e)) for (kk, g), e in zip(groups.items(), ends)]
-        at = {key: i for i, key in enumerate(by_char[ch])}
-        levels_of[ch] = register_glyph(scans, M_tie, by_char[ch], [at[key] for key in keys_of[ch]], workdir / "regs" / fname(ch))
-        for nk, t in zip(keys_of[ch], levels_of[ch]):
-            per_scan[nk[0]].append(t)
-        prog.step(f"{ch!r}, {len(by_char[ch])} units")
-    levels = {n: float(np.median(v)) for n, v in per_scan.items()}
+            by_group[group_of.get(key, key)].append(key)
+        for keys in by_group.values():
+            groups[scans[keys[0][0]]["card"]][ch].append(keys)
+    sizes = {ch: canvas_size([rectified_shape(scans[n]["units"][k], scans[n]["scale"], M_tie[n]) for n, k in by_char[ch]]) for ch in glyphs}
+    card_scans = {c: {n: s for n, s in scans.items() if s["card"] == c} for c in cards}
+    card_M = {c: {n: M_tie[n] for n in card_scans[c]} for c in cards}
+    views = lambda c: sum(len(k) for gs in groups[c].values() for k in gs)
+
+    with timed("registering views within cards"):
+        within = _map(_card_groups, [(views(c), (card_scans[c], card_M[c], groups[c], sizes, fused / c)) for c in cards], workers, "registering views within cards")
+    folders = lambda ch, part: [fused / c / fname(ch) / part for c in cards if groups[c][ch]]
+    with timed("registering printed glyphs"):
+        between = _map(_glyph_shifts, [(n_groups[ch], (folders(ch, "means"), sizes[ch])) for ch in glyphs], workers, "registering printed glyphs")
+    places = {c: {} for c in cards}
+    for ch, (gplaces, _) in zip(glyphs, between):
+        it = iter(gplaces)
+        for c, w in zip(cards, within):
+            places[c][ch] = [[_compose(v, g) for v in vs] for vs, g in zip(w[ch], it)]
+    areas = {ch: area for ch, (_, area) in zip(glyphs, between)}
+    # each view's canvas and placement, so a registered view can be rendered again later, as the site's pixel layers do
+    (fused / "places.json").write_text(json.dumps({ch: dict(size=list(sizes[ch]), views=[
+        [nk[0], nk[1], int(o[0]), int(o[1]), float(w[0, 2]), float(w[1, 2])]
+        for c in cards for keys, pls in zip(groups[c][ch], places[c][ch]) for nk, (o, w) in zip(keys, pls)]) for ch in glyphs}))
+    with timed("fusing views"):
+        fusedres = _map(_card_fuse, [(views(c), (card_scans[c], card_M[c], groups[c], sizes, places[c], areas, fused / c)) for c in cards], workers, "fusing views")
+    levels = {n: t for lv, _ in fusedres for n, t in lv.items()}
     log.info("edge levels %s", " ".join(f"{n}:{t:.3f}" for n, t in sorted(levels.items())))
+
     stacks_dir = Path(stacks_dir or workdir / "stacks")
     if stacks_dir.exists():
         shutil.rmtree(stacks_dir)
-    stacks, rows, done = {}, [], {}
-    prog = Progress("stacking glyphs", len(glyphs))
-    workers = min(workers or os.cpu_count() or 1, len(glyphs))
-    args = lambda ch: (workdir / "regs" / fname(ch), keys_of[ch], spans_of[ch], levels, asp, stacks_dir / fname(ch))
-    if workers > 1:
-        prof = target.get()
-        with pool(workers, target.use, (prof.path,)) as ex:
-            # the largest glyphs first, so the longest task does not start last
-            futs = {ex.submit(_stack_task, *args(ch)): ch for ch in sorted(glyphs, key=lambda c: -len(keys_of[c]))}
-            for f in as_completed(futs):
-                done[futs[f]] = f.result()
-                prog.step(repr(futs[f]))
-    for ch in glyphs:
-        keys, spans = keys_of[ch], spans_of[ch]
-        st, pair_dev, keep, loo, devs = done[ch] if ch in done else _stack_task(*args(ch))
-        cards = sorted({scans[kk[0]]["card"] for (kk, _, _), kp in zip(spans, keep) if kp})
-        for i, (kk, a, b) in enumerate(spans):
-            members = keys[a:b]
+    # a glyph's printed glyphs in card order, each with its views
+    order = {ch: [keys for c in cards for keys in groups[c][ch]] for ch in glyphs}
+    pair_devs = {ch: [d for c, (_, dv) in zip(cards, fusedres) for d in dv.get(ch, [])] for ch in glyphs}
+    with timed("stacking glyphs"):
+        res = _map(_glyph_stack, [(n_groups[ch], (folders(ch, "inst"), pair_devs[ch], asp, stacks_dir / fname(ch))) for ch in glyphs], workers, "stacking glyphs")
+    stacks, rows = {}, []
+    for ch, (st, pair_dev, keep, loo, devs) in zip(glyphs, res):
+        stack_cards = sorted({scans[keys[0][0]]["card"] for keys, kp in zip(order[ch], keep) if kp})
+        for i, members in enumerate(order[ch]):
+            kk = members[0]
             card = scans[kk[0]]["card"]
             rows.append(dict(
                 char=ch, pair_id=f"{card}:{ch}:{kk[0]}:{kk[1]}", card=card, kept=bool(keep[i]),
@@ -460,20 +561,16 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
                 halo_px=[scans[m[0]]["units"][m[1]]["halo_px"] for m in members], card_scale=float(np.sqrt(card_S[card][0, 0] * card_S[card][1, 1])),
                 print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev[i],
             ))
-        stacks[ch] = dict(st, n_units=len(keys), n_dropped=int((~keep).sum()), cards=cards)
-        note = f"{ch!r}: {st['n']} instances from {len(cards)} cards, {stacks[ch]['n_dropped']} dropped, LOO IoU {st['loo'].mean():.3f}"
-        if ch in done:
-            log.debug(note)
-        else:
-            prog.step(note)
+        stacks[ch] = dict(st, n_units=len(by_char[ch]), n_dropped=int((~keep).sum()), cards=stack_cards)
+        log.debug("%r: %d instances from %d cards, %d dropped, LOO IoU %.3f", ch, st["n"], len(stack_cards), stacks[ch]["n_dropped"], st["loo"].mean())
     with_dev = [r for r in rows if r.get("pair_dev_um") is not None]
     devs = np.array([r["pair_dev_um"] for r in with_dev])
     nviews = np.array([len(r["scans"]) for r in with_dev])
     rms = float(np.sqrt((devs**2).mean())) if len(devs) else None
     # a printed glyph's mean over n views carries the single-view noise divided by the square root of n
-    fused = float(np.sqrt((devs**2 / 2 / nviews).mean())) if len(devs) else None
+    fused_um = float(np.sqrt((devs**2 / 2 / nviews).mean())) if len(devs) else None
     noise = dict(tied=bool(tie), n_pairs=len(devs), views_mean=float(nviews.mean()) if len(devs) else None, pair_rms_um=rms,
-                 single_scan_um=None if rms is None else rms / np.sqrt(2), pair_mean_um=fused)
+                 single_scan_um=None if rms is None else rms / np.sqrt(2), pair_mean_um=fused_um)
     if rms is not None:
         log.info("view against view %d printed glyphs (%.1f views each), edge RMS %.2f um, single scan noise %.2f um, mean of views %.2f um",
                  len(devs), noise["views_mean"], rms, noise["single_scan_um"], noise["pair_mean_um"])
