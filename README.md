@@ -83,6 +83,19 @@ A profile lists the typeface's faces. The first is the primary face: its glyph k
 
 The other sections hold the settings tuned to the type: the segmentation threshold and size limits, the template character set, em size and print scale range, the matching thresholds, the characters scan geometry is estimated from, the stacking thresholds, the glyph the shared fit starts from with its starting values, and the glyph and card the site's step figure uses. `rules.toml` documents each one.
 
+## Scoring a session against the printed text
+
+`bench.py` scores a session against the text printed on its cards, so a change to the pipeline can be measured on found and labelled glyphs rather than on its own output. It reads the session's scan table with one more column, `name`, the card's printed name as the scan list's Card text sheet spells it. A `box` column of y0 y1 x0 x1 fractions of the upright card crop moves the rules box for a frame that puts it elsewhere.
+
+```
+.venv/bin/python -m glyphstack.bench truth scans/cropped/table.csv --font /path/to/font.ttf --italic-font /path/to/italic.ttf
+.venv/bin/python -m glyphstack.bench score build/session scans/cropped/table.csv
+```
+
+`truth` places every printed character of each scan by fitting the font to the card's text, line by line, and writes `<scan stem>.json` with an overlay `<scan stem>.png` to `truth/` beside the table. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and the text is turned level first, since a card can sit a degree askew. The truth comes from card scans, so it stays out of git with them. Check the overlays by eye before trusting a new card's truth.
+
+`score` extracts each scan again under the session's profile to count the glyphs it found, and reads the session's labels. For each scan it reports the glyphs found, merged, fragmented or stray, labelled, right, in the wrong face, wrong and falsely labelled, split by face and by the screen contrast under each glyph. Where a card has glyphs on both plain and strongly screened background it reports their ink weight ratio and the light ring outside the screened glyphs' edges. Each card is then stacked on its own from 8 units a glyph, so cards printed at different sizes do not move each other's stacks, and the edge deviation of its instances is reported by background. The results go to `bench/bench.json` in the session.
+
 ## Exporting data for the site
 
 `export_site.py` reads a session folder and writes the JSON the documentation site renders.

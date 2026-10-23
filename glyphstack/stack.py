@@ -475,13 +475,14 @@ def _map(fn, tasks, workers, label):
     return out
 
 
-def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None):
+def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None, min_units=None):
     """Runs the full stacking over {scan name: {units, scale, card, angle}}
 
     Returns {"stacks": {char: {...}}, "levels": {scan: level}, "aspect": float, "scans": per-scan geometry,
     "instances": manifest rows}. Each printed glyph's views are fused within their card into one instance under
     workdir/fused, and each glyph's stack goes to stacks_dir/<glyph>, default workdir/stacks, with its instances in a
-    chunks.Store. The per-card and per-glyph stages run in `workers` processes, default one per core
+    chunks.Store. The per-card and per-glyph stages run in `workers` processes, default one per core. min_units
+    overrides the profile's fewest units a glyph is stacked from
     """
     workdir = Path(workdir)
     fused = workdir / "fused"
@@ -503,7 +504,7 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
             if it + 1 < iterations:
                 refs = {c: np.mean(register(rectify_glyph(scans, M_tie, sample(by_char[c], REF_SAMPLE))), 0) for c in achars}
     n_groups = {c: len({group_of.get(nk, nk) for nk in v}) for c, v in by_char.items()}
-    min_units = target.get()["stack"]["min_units"]
+    min_units = target.get()["stack"]["min_units"] if min_units is None else min_units
     glyphs = [c for c, v in by_char.items() if len(v) >= min_units and n_groups[c] >= min_units // 2]
     workers = workers or os.cpu_count() or 1
 
