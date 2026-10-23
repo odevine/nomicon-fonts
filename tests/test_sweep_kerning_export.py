@@ -48,6 +48,14 @@ def test_summarise_groups_pairs():
     rows = [dict(scan="s", card="c", pair="rn", base=10.0, kern=30, dev_nokern=31.0 + i, dev_kern=1.0 + i) for i in range(3)]
     out = kerning.summarise(rows)["rn"]
     assert out["n"] == 3 and out["kern"] == 30 and abs(out["mean_dev_kern"] - 2.0) < 1e-9
+    assert "samples" not in out
+
+
+def test_samples_keep_every_measurement_with_its_scan():
+    rows = [dict(scan=s, card="c", pair=p, base=10.0, kern=0, dev_nokern=1.25 + i, dev_kern=1.25 + i) for i, (s, p) in enumerate([("b", "rn"), ("a", "rn"), ("b", "ox")])]
+    out = kerning.samples(rows)
+    assert out["scans"] == ["a", "b"]
+    assert out["pairs"]["rn"] == [[1, 1.2, 1.2], [0, 2.2, 2.2]] and out["pairs"]["ox"] == [[1, 3.2, 3.2]]
 
 
 def test_trace_nodes_sit_on_the_half_contour():
