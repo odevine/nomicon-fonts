@@ -24,6 +24,7 @@ def test_flavor_reminder_text_and_ability_words_read_as_italic():
     assert faces(pars[1]).startswith("i" * len("Landfall — ")) and faces(pars[1])[len("Landfall — ")] == "r"
     assert pars[2][0] == ("{T}", "symbol") and pars[2][-2] == ("{G}", "symbol")
     assert set(faces(pars[3])) == {"i"}
+    assert set(faces(truth.paragraphs("Rules:\nChoose one — Draw a card.")[0])) == {"r"}
 
 
 def test_words_are_split_at_spaces_and_wrapped_to_the_ink_width():
@@ -46,6 +47,24 @@ def test_units_are_sorted_into_finds_merges_fragments_and_strays():
     out, rows = bench.score(units, kept, chars)
     assert (out["found"], out["right"], out["wrong"], out["wrong_face"]) == (3, 1, 1, 1)
     assert (out["merged"], out["stray"], out["fragments"], out["false_labels"]) == (1, 1, 1, 1)
+
+
+def test_units_on_ignored_characters_are_not_counted():
+    chars = [dict(ch="a", face="regular", y0=100, y1=140, x0=100, x1=130), dict(ch="|", face="italic", y0=100, y1=150, x0=200, x1=215)]
+    units = [dict(bbox=(100, 140, 100, 130)), dict(bbox=(100, 150, 198, 217))]
+    kept = [dict(units[0], ch="a"), dict(units[1], ch="l")]
+    out, rows = bench.score(units, kept, chars[:1], ignore=chars[1:])
+    # the unit on the ignored bar is neither a stray nor a false label
+    assert (out["truth"], out["ignored"], out["right"], out["stray"], out["false_labels"]) == (1, 1, 1, 0, 0)
+    assert len(rows) == 1
+
+
+def test_characters_on_a_poorly_placed_line_or_past_the_crop_are_marked():
+    t = dict(shape=[500, 400], chars=[dict(line=0, ncc=0.9, x0=10, x1=40, y0=10, y1=50), dict(line=0, ncc=0.8, x0=380, x1=410, y0=10, y1=50),
+                                      dict(line=1, ncc=0.3, x0=10, x1=40, y0=100, y1=140), dict(line=1, ncc=0.4, x0=50, x1=80, y0=100, y1=140)])
+    bench.mark(t)
+    assert [c["cut"] for c in t["chars"]] == [False, True, False, False]
+    assert [c["uncertain"] for c in t["chars"]] == [False, False, True, True]
 
 
 def test_weight_ratio_compares_each_character_on_both_backgrounds():

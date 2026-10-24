@@ -18,8 +18,8 @@ from . import font as fnt
 from . import target
 from .scan import text_skew
 
-# the rules text box as y0, y1, x0, x1 fractions of the upright card crop, for the standard frames
-BOX = (0.615, 0.93, 0.07, 0.93)
+# the rules text box as y0, y1, x0, x1 fractions of the card's frame, for the standard frames
+BOX = (0.62, 0.946, 0.05, 0.975)
 SUPERSAMPLE = 4
 SLACK_PX = 10
 JITTER_PX = 3
@@ -27,14 +27,18 @@ JITTER_PX = 3
 SYMBOL_EM = 0.8
 # ink further than this share of the em past the last word is not part of the line, such as a power and toughness box
 GAP_EM = 0.8
-FACES = {"r": "regular", "i": "italic"}
+# a printed line above the text whose best fit to the first words averages less correlation than this per glyph
+# holds other ink
+SKIP_NCC = 0.3
+# a line's last word whose glyphs average less correlation than this was placed on the frame past the line's end
+LAST_WORD_NCC = 0.35
 
 
 def paragraphs(text):
     """The card text as paragraphs, each a list of (character, face) with mana symbols as ("{X}", "symbol")
 
     Faces are regular or italic. Everything after a Flavor: line is italic, as are parentheses with what they hold and
-    an ability word before a spaced dash at the start of a rules paragraph
+    an ability word before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one
     """
     out, flavor = [], False
     for line in text.split("\n"):
@@ -45,6 +49,9 @@ def paragraphs(text):
             continue
         chars, depth = [], 0
         ability = re.match(r"^([^(){}—]+ — )", line) if not flavor else None
+        # a modal spell's Choose one is rules text, not an ability word
+        if ability and ability.group(1).startswith("Choose "):
+            ability = None
         i = 0
         while i < len(line):
             ch = line[i]
@@ -242,6 +249,18 @@ def fit_line(chars, scores, glyphs, b0, search=8):
     return best
 
 
+def placement_ncc(scores, glyphs, ch, face, p, b):
+    """The correlation of one placed glyph at pen x p on baseline b, the best within the baseline jitter, None without an image"""
+    t = glyphs(ch, face)
+    R = scores[(ch, face)]
+    if R is None:
+        return None
+    ox, oy = t["off"]
+    x = min(max(p + ox, 0), R.shape[1] - 1)
+    rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]]
+    return float(R[rows, x].max()) if rows else None
+
+
 def text_lines(Ds, glyphs):
     """Each printed line's baseline row and the columns its ink spans, from the rows and columns of ink
 
@@ -253,28 +272,63 @@ def text_lines(Ds, glyphs):
     colfrac, rowfrac = ink.mean(0), ink.mean(1)
     ink = ink & (colfrac < 0.4)[None, :] & (rowfrac < 0.6)[:, None]
     m0, m1 = int(0.03 * W), int(0.97 * W)
-    rows = np.convolve(ink[:, m0:m1].mean(1), np.ones(5) / 5, "same")
-    # any row with a little ink belongs to a line, so a short last line of a paragraph is found too
-    on = rows > 0.05 * np.percentile(rows[rows > 0], 95)
-    bands, start = [], None
-    for y, v in enumerate(np.append(on, False)):
-        if v and start is None:
-            start = y
-        elif not v and start is not None:
-            bands.append((start, y))
-            start = None
     gap = GAP_EM * glyphs.px_em
+    em = glyphs.px_em
+
+    def zones(rows, b0, b1):
+        """The x-height zones in a band of rows, more than one where lines run together"""
+        if b1 - b0 < 0.2 * em:
+            return []
+        # the x-height zone runs from a steep rise to a steep fall 0.3 to 0.6 em below it, the pair that is steepest
+        # together, and its foot is the baseline. A dash or a hyphen gives a sharper but narrower step, which the
+        # spacing rules out. The search reaches a few rows past the band, since a line with no ascenders rises at its edge
+        p0, p1 = max(b0 - 6, 0), min(b1 + 6, len(rows))
+        d = np.diff(rows[p0:p1])
+        lo, hi = int(0.3 * em), int(0.6 * em)
+        best = None
+        for t in range(len(d)):
+            seg = d[t + lo : t + hi + 1]
+            if len(seg) == 0:
+                break
+            k = int(np.argmin(seg))
+            v = d[t] - seg[k]
+            if best is None or v > best[0]:
+                best = (v, t, t + lo + k)
+        out = []
+        if best is not None:
+            top, bottom = p0 + best[1], p0 + best[2] + 1
+            out.append((top, bottom))
+        else:
+            top = bottom = (b0 + b1) // 2
+        # a band holds one line's ascenders and descenders, about a quarter em either side, so more means another line
+        if top - b0 > 0.6 * em:
+            out = zones(rows, b0, top - int(0.3 * em)) + out
+        if b1 - bottom > 0.6 * em:
+            out = out + zones(rows, bottom + int(0.3 * em), b1)
+        return out
+
+    def find(c1):
+        """Zones from the row profile of the columns up to c1"""
+        rows = np.convolve(ink[:, m0:c1].mean(1), np.ones(5) / 5, "same")
+        # any row with a little ink belongs to a line, so a short last line of a paragraph is found too
+        on = np.append(rows > 0.05 * np.percentile(rows[rows > 0], 95), False)
+        edges = np.flatnonzero(np.diff(np.concatenate([[False], on]).astype(int)))
+        bands = [(int(a), int(b)) for a, b in zip(edges[::2], edges[1::2])]
+        # a band cut by the box's top or bottom edge is the frame or a line the box does not hold
+        return [z for b0, b1 in bands if b0 > 0 and b1 < H for z in zones(rows, b0, b1)]
+
+    # lines start at the left margin while a power and toughness box or a set emblem sits further right, and an
+    # indented or centred line can start past the left third, so a line counts when either profile finds it
+    found = sorted(find(int(0.33 * W)) + find(int(0.75 * W)), key=lambda z: z[1])
+    merged = []
+    for z in found:
+        if merged and abs(z[1] - merged[-1][1]) < 0.3 * em:
+            continue
+        merged.append(z)
+
     out = []
-    for b0, b1 in bands:
-        if b1 - b0 < 0.2 * glyphs.px_em:
-            continue
-        # the x-height zone runs from the band's steepest rise to its steepest fall, and its foot is the baseline
-        d = np.diff(rows[b0:b1])
-        top = b0 + int(np.argmax(d))
-        bottom = top + 1 + int(np.argmin(d[top - b0 :]))
+    for top, bottom in merged:
         h = bottom - top
-        if h < 0.25 * glyphs.px_em:
-            continue
         cols = np.nonzero(ink[max(top - h, 0) : bottom + h // 2, m0:m1].any(0))[0] + m0
         if len(cols) == 0:
             continue
@@ -299,53 +353,99 @@ def assign(pars, lines, glyphs, scores):
             line = lines[li]
             k0 = wrap_end(widths, space, line["x1"] - line["x0"], start, len(words))
             cands = sorted({k for k in (k0 - 1, k0, k0 + 1) if start <= k < len(words)})
-            best = None
+            fits = []
             for k in cands:
                 # spaces stay in the line so the pen advances over them, they have no image to place
                 chars = [c for w in words[start : k + 1] for c in w + [(" ", "regular")]][:-1]
                 score, b, placed, right = fit_line(chars, scores, glyphs, line["base"])
-                err = abs(right - line["x1"])
-                if best is None or err < best[0]:
-                    best = (err, k, chars)
+                n = sum(glyphs(ch, face)["img"] is not None for ch, face in chars)
+                last = [placement_ncc(scores, glyphs, ch, face, p, b) for ch, face, p in placed[-len(words[k]) :]]
+                last = [v for v in last if v is not None]
+                fits.append((abs(right - line["x1"]), k, chars, score / max(n, 1), np.mean(last) if last else 1.0))
+            best = min(fits)
+            # a last word whose glyphs land on no ink was pushed onto the frame and belongs to the next line
+            while best[4] < LAST_WORD_NCC and best[1] > start:
+                shorter = [f for f in fits if f[1] == best[1] - 1]
+                if not shorter:
+                    break
+                best = shorter[0]
+            li += 1
+            # a line above the text that the first words do not fit at all is the type line or frame the box took in.
+            # Lines below the text are never given words, so only these need skipping
+            if not out and best[3] < SKIP_NCC:
+                continue
             out.append(dict(line, chars=best[2]))
             start = best[1] + 1
-            li += 1
     return out
 
 
-def level(g, box=BOX):
-    """The rules box of an upright card crop turned level, with the map from the level box back to the card crop"""
+def level(g, box=BOX, frame=None):
+    """The rules box of an upright card crop turned level, with the map from the level box back to the card crop
+
+    The box is a share of the card's frame, its y0, y1, x0, x1 in the crop's pixels, which defaults to the whole crop
+    and lies partly outside it for a card the scan cut off
+    """
     H, W = g.shape
-    y0, y1, x0, x1 = int(box[0] * H), int(box[1] * H), int(box[2] * W), int(box[3] * W)
+    fy0, fy1, fx0, fx1 = frame or (0, H, 0, W)
+    y0, y1 = max(int(fy0 + box[0] * (fy1 - fy0)), 0), min(int(fy0 + box[1] * (fy1 - fy0)), H)
+    x0, x1 = max(int(fx0 + box[2] * (fx1 - fx0)), 0), min(int(fx0 + box[3] * (fx1 - fx0)), W)
     crop = g[y0:y1, x0:x1]
     skew = text_skew(crop)
     h, w = crop.shape
     M = cv2.getRotationMatrix2D((w / 2, h / 2), skew, 1.0)
     D = cv2.warpAffine(darkness(crop), M, (w, h), flags=cv2.INTER_LINEAR, borderValue=0)
     Ds = cv2.warpAffine(darkness(cv2.GaussianBlur(crop.astype(np.float32), (0, 0), 2.5)), M, (w, h), flags=cv2.INTER_LINEAR, borderValue=0)
+    # the card frame beside the box is nearly as dark as ink all the way down, which even a dark textured box is not,
+    # so columns outside the widest run of box columns are cleared before lines are found and glyphs placed
+    lv = cv2.warpAffine(crop.astype(np.float32), M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    med = np.median(lv, axis=0)
+    ink, paper = np.percentile(lv, 1), np.percentile(med, 90)
+    inside = med > ink + 0.25 * (paper - ink)
+    runs = np.flatnonzero(np.diff(np.concatenate([[0], inside.astype(int), [0]])))
+    if len(runs):
+        k = int(np.argmax(runs[1::2] - runs[::2]))
+        keep = np.zeros(w, bool)
+        keep[runs[2 * k] : runs[2 * k + 1]] = True
+        D[:, ~keep], Ds[:, ~keep] = 0, 0
     back = cv2.invertAffineTransform(M)
     back[:, 2] += [x0, y0]
     return D, Ds, back, skew, (y0, y1, x0, x1)
 
 
-def estimate_scale(lines):
-    """Print scale from the height of the lines' x-height bands, against the regular face's x-height of 0.45 em"""
-    t = target.get()["templates"]
-    return float(np.median([l["height"] for l in lines])) / (0.45 * t["px_per_em"] / 4 * t["aspect"])
+def estimate_scale(D, fonts, lo=0.74, hi=1.1, step=0.02, chars="eaon"):
+    """The print scale at which common letters of the regular face correlate best with the box, in steps of `step`
+
+    Each letter's score is the mean of its 40 best correlations over the box, which sit on its printed copies when the
+    rendered size matches. Reading the size from line heights instead is thrown off by lines of capitals and by the
+    italic face's smaller x-height
+    """
+    def score(s):
+        gl = Glyphs(fonts, float(s))
+        out = []
+        for ch in chars:
+            t = gl(ch, "regular")
+            if t["img"] is None:
+                continue
+            R = cv2.matchTemplate(D, t["img"], cv2.TM_CCOEFF_NORMED)
+            out.append(float(np.mean(np.partition(R.ravel(), -40)[-40:])))
+        return np.mean(out)
+
+    return float(max(np.round(np.arange(lo, hi + 1e-9, step), 3), key=score))
 
 
-def fit(g, text, fonts, box=BOX, scales=None):
+def fit(g, text, fonts, box=BOX, scales=None, frame=None):
     """Truth for one upright card crop: every placed character with its face, quad and bounds in card crop pixels
 
-    fonts is {"regular": font, "italic": font}. Returns a dict with the scale, the text skew, the box and the characters
+    fonts is {"regular": font, "italic": font}, and frame the card's full frame in the crop's pixels as `level` takes it.
+    Returns a dict with the scale, the text skew, the box and the characters
     """
-    D, Ds, back, skew, bounds = level(g, box)
+    D, Ds, back, skew, bounds = level(g, box, frame)
     pars = paragraphs(text)
-    s0 = estimate_scale(text_lines(Ds, Glyphs(fonts, 0.9)))
+    s0 = estimate_scale(D, fonts)
     glyphs = Glyphs(fonts, s0)
     lines = assign(pars, text_lines(Ds, glyphs), glyphs, Scores(D, glyphs))
     best = None
-    for s in scales or np.round(np.arange(s0 - 0.06, s0 + 0.0601, 0.01), 3):
+    for s in scales or np.round(np.arange(s0 - 0.03, s0 + 0.0301, 0.01), 3):
         gl = Glyphs(fonts, float(s))
         sc = Scores(D, gl)
         total, placed = 0.0, []
