@@ -32,29 +32,53 @@ def card_crop(g):
 def segment(g):
     """Labels ink components and merges i and j dots into their stems, returns the label image and component dicts
 
-    The ink threshold, size limits and dot rules come from the profile's segment section
+    The ink threshold, size limits and dot rules come from the profile's segment section. A dot joins the stem below it
+    whose top end it overlaps, the columns of the stem's top fifth, so the dot of a slanted italic stem, which sits to
+    the right of the stem's foot, still finds it. A dot smaller than the components the profile keeps joins only a
+    stem narrow at its top, as an i or j is, so a speck of texture above an n or m stays out of it
     """
     cfg = target.get()["segment"]
     ink = ndi.gaussian_filter(g.astype(np.float32), 1.2) < cfg["ink_level"]
     lab, n = ndi.label(ink, structure=np.ones((3, 3)))
     areas = ndi.sum(ink, lab, range(1, n + 1))
-    comps = []
-    big = cfg["max_size"]
-    for i, sl in enumerate(ndi.find_objects(lab), 1):
+    comps, small = [], []
+    big, box = cfg["max_size"], cfg["dot_max_box"]
+    dot_min = cfg.get("dot_min_area", cfg["min_area"])
+    objs = ndi.find_objects(lab)
+    for i, sl in enumerate(objs, 1):
         h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
-        if areas[i - 1] < cfg["min_area"] or h > big or w > big or h < cfg["min_height"]:
-            continue
-        comps.append(dict(id=i, y0=sl[0].start, y1=sl[0].stop, x0=sl[1].start, x1=sl[1].stop, area=int(areas[i - 1]), ids=[i]))
+        c = dict(id=i, y0=sl[0].start, y1=sl[0].stop, x0=sl[1].start, x1=sl[1].stop, area=int(areas[i - 1]), ids=[i])
+        if areas[i - 1] >= cfg["min_area"] and h <= big and w <= big and h >= cfg["min_height"]:
+            comps.append(c)
+        elif dot_min <= areas[i - 1] < cfg["min_area"] and h <= box and w <= box:
+            small.append(c)
     used = set()
-    box, tall, gap = cfg["dot_max_box"], cfg["dot_stem_min_height"], cfg["dot_max_gap"]
-    for c in (c for c in comps if c["area"] < cfg["dot_max_area"] and c["x1"] - c["x0"] <= box and c["y1"] - c["y0"] <= box):
-        stems = [
-            o for o in comps
-            if o is not c and o["y1"] - o["y0"] > tall and o["x0"] - 4 <= c["x0"] and c["x1"] <= o["x1"] + 4
-            and o["y0"] > c["y0"] - 2 and 0 <= o["y0"] - c["y1"] < gap
-        ]
-        if len(stems) == 1:
-            s = stems[0]
+    tall, gap = cfg["dot_stem_min_height"], cfg["dot_max_gap"]
+    narrow = cfg.get("dot_narrow_stem", 0.6)
+    tops = {}
+
+    def top_end(o):
+        """The columns of a component's top fifth, and that width over its height"""
+        if o["id"] not in tops:
+            h = o["y1"] - o["y0"]
+            cols = np.nonzero((lab[o["y0"] : o["y0"] + max(h // 5, 3), o["x0"] : o["x1"]] == o["id"]).any(0))[0] + o["x0"]
+            tops[o["id"]] = (cols.min(), cols.max() + 1, (cols.max() + 1 - cols.min()) / h)
+        return tops[o["id"]]
+
+    dots = [c for c in comps if c["area"] < cfg["dot_max_area"] and c["x1"] - c["x0"] <= box and c["y1"] - c["y0"] <= box] + small
+    for c in dots:
+        best = None
+        for o in comps:
+            if o is c or o["id"] in used or o["y1"] - o["y0"] <= tall or not (o["y0"] > c["y0"] - 2 and 0 <= o["y0"] - c["y1"] < gap):
+                continue
+            t0, t1, ratio = top_end(o)
+            if c in small and ratio > narrow:
+                continue
+            overlap = min(c["x1"], t1 + 4) - max(c["x0"], t0 - 4)
+            if overlap > 0 and (best is None or overlap > best[0]):
+                best = (overlap, o)
+        if best is not None:
+            s = best[1]
             s["ids"] = s["ids"] + c["ids"]
             s["y0"] = min(s["y0"], c["y0"])
             s["area"] += c["area"]

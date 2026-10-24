@@ -47,8 +47,12 @@ ink_level = 120
 min_area = 150
 min_height = 8
 max_size = 150
-# a small component above a tall one joins it, for the dots of i and j
+# a small component above a tall one joins it, for the dots of i and j, when it overlaps the stem's top end
 dot_max_area = 700
+# a dot this small, below min_area, joins only a stem whose top is at most dot_narrow_stem of its height across, as an
+# i or j is, so a speck of halftone above another letter stays out of it
+dot_min_area = 40
+dot_narrow_stem = 0.6
 dot_max_box = 24
 dot_stem_min_height = 30
 dot_max_gap = 25
