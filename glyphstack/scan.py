@@ -1,12 +1,13 @@
 """Loads a scan and turns the rules box into a flat, upright ink-density image"""
 import cv2
 import numpy as np
-import pymupdf
 
 
 def load_scan(path):
     """Returns the scan as a BGR float32 array in 0..1, from a PDF with one embedded image or a TIFF/PNG/JPEG"""
     if str(path).lower().endswith(".pdf"):
+        import pymupdf  # imported here because it loads onnxruntime, whose exit-time telemetry can hang pool workers
+
         doc = pymupdf.open(path)
         data = doc.extract_image(doc[0].get_images()[0][0])["image"]
         img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
