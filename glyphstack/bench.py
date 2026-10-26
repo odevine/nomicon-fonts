@@ -119,11 +119,24 @@ def upright_frame(path, angle):
     return up, tuple(int(round(v)) for v in frame)
 
 
+def reaches(u, c):
+    """Whether a unit's own ink reaches the middle half of a character's box, true for a unit without a mask"""
+    if "mask" not in u:
+        return True
+    by0, _, bx0, _ = u["box"]
+    qy, qx = (c["y1"] - c["y0"]) // 4, (c["x1"] - c["x0"]) // 4
+    y0, y1 = max(c["y0"] + qy - by0, 0), max(c["y1"] - qy - by0, 0)
+    x0, x1 = max(c["x0"] + qx - bx0, 0), max(c["x1"] - qx - bx0, 0)
+    return bool(u["mask"][y0:y1, x0:x1].any())
+
+
 def score(all_units, kept, chars, ignore=()):
     """Sorts a scan's units against its characters, returns counts and one row per unit near the text
 
     A unit whose box holds exactly one character's centre, and whose own centre lies within FIND_PX of that
-    character's box, is a find of it. A unit holding two or more centres is merged, one near a box that holds none
+    character's box, is a find of it. When the box holds several centres, as a kerned neighbour's or an italic
+    overhang's can be, only the characters whose middle the unit's own ink reaches count. A unit holding two or more
+    of those is merged, one near a box that holds none
     is a fragment and one away from every box is stray. A find is right when its label is the character in its face.
     Units centred on a character in `ignore`, one cut by the scan's edge or too poorly placed to trust, are not counted
     """
@@ -140,6 +153,9 @@ def score(all_units, kept, chars, ignore=()):
         if any(c["y0"] - FIND_PX <= cy <= c["y1"] + FIND_PX and c["x0"] - FIND_PX <= cx <= c["x1"] + FIND_PX for c in ignore):
             continue
         inside = np.nonzero((tc[:, 0] >= y0) & (tc[:, 0] < y1) & (tc[:, 1] >= x0) & (tc[:, 1] < x1))[0]
+        if len(inside) >= 2:
+            # when the ink reaches no middle, the centre nearest the unit's own stands
+            inside = np.array([i for i in inside if reaches(u, chars[i])] or [min(inside, key=lambda i: np.hypot(*(tc[i] - (cy, cx))))], int)
         r = dict(bbox=tuple(int(v) for v in u["bbox"]), label=labels.get(tuple(u["bbox"])))
         near = [i for i, c in enumerate(chars) if c["y0"] - FIND_PX <= cy <= c["y1"] + FIND_PX and c["x0"] - FIND_PX <= cx <= c["x1"] + FIND_PX]
         if len(inside) >= 2:

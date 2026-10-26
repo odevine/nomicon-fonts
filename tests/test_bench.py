@@ -117,3 +117,19 @@ def test_fit_places_rendered_text_where_it_was_drawn():
     err = [np.hypot((c["x0"] + c["x1"]) / 2 - x, (c["y0"] + c["y1"]) / 2 - y) for c, (_, x, y) in zip(got["chars"], drawn)]
     assert [c["ch"] for c in got["chars"]] == [d[0] for d in drawn]
     assert max(err) < 3
+
+
+def test_a_kerned_neighbour_inside_a_units_box_does_not_make_it_merged():
+    # a T whose bar reaches over the o after it: the o's centre lies in the T's box but its ink does not
+    chars = [dict(ch="T", face="regular", y0=100, y1=160, x0=100, x1=150), dict(ch="o", face="regular", y0=125, y1=160, x0=135, x1=165)]
+    mask = np.zeros((60, 60), bool)
+    mask[0:8, 0:60] = True
+    mask[0:60, 22:30] = True
+    t = dict(bbox=(100, 160, 100, 160), box=(100, 160, 100, 160), mask=mask)
+    o = dict(bbox=(125, 160, 135, 165))
+    out, rows = bench.score([t, o], [dict(t, ch="T"), dict(o, ch="o")], chars)
+    assert (out["found"], out["right"], out["merged"], out["false_labels"]) == (2, 2, 0, 0)
+    # ink that reaches the o's middle does make the unit a merge
+    mask[30:52, 40:56] = True
+    out, _ = bench.score([t], [dict(t, ch="T")], chars)
+    assert out["merged"] == 1
