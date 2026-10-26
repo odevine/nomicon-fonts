@@ -35,7 +35,9 @@ def segment(g):
     The ink threshold, size limits and dot rules come from the profile's segment section. A dot joins the stem below it
     whose top end it overlaps, the columns of the stem's top fifth, so the dot of a slanted italic stem, which sits to
     the right of the stem's foot, still finds it. A dot smaller than the components the profile keeps joins only a
-    stem narrow at its top, as an i or j is, so a speck of texture above an n or m stays out of it
+    stem narrow at its top, as an i or j is, so a speck of texture above an n or m stays out of it. With keep_marks
+    set, every dot needs a stem narrow at its top, and two dots side by side over a letter first join each other as a
+    diaeresis, so an accent stays apart from its letter as a mark of its own
     """
     cfg = target.get()["segment"]
     ink = ndi.gaussian_filter(g.astype(np.float32), 1.2) < cfg["ink_level"]
@@ -66,13 +68,17 @@ def segment(g):
         return tops[o["id"]]
 
     dots = [c for c in comps if c["area"] < cfg["dot_max_area"] and c["x1"] - c["x0"] <= box and c["y1"] - c["y0"] <= box] + small
+    marks = cfg.get("keep_marks", False)
+    if marks:
+        paired = join_diaereses(comps, dots, used, gap)
+        dots = [c for c in dots if c["id"] not in paired]
     for c in dots:
         best = None
         for o in comps:
             if o is c or o["id"] in used or o["y1"] - o["y0"] <= tall or not (o["y0"] > c["y0"] - 2 and 0 <= o["y0"] - c["y1"] < gap):
                 continue
             t0, t1, ratio = top_end(o)
-            if c in small and ratio > narrow:
+            if (marks or c in small) and ratio > narrow:
                 continue
             overlap = min(c["x1"], t1 + 4) - max(c["x0"], t0 - 4)
             if overlap > 0 and (best is None or overlap > best[0]):
@@ -86,6 +92,39 @@ def segment(g):
     if "mark_max_height" in cfg:
         join_marks(lab, comps, used, cfg)
     return lab, [c for c in comps if c["id"] not in used]
+
+
+def join_diaereses(comps, dots, used, gap):
+    """Joins two dots of one size side by side over a letter into one diaeresis component, in place, and returns the ids of every dot joined
+
+    The two sit on one row at most twice a dot's width apart, and the letter is one kept component whose top lies
+    under them within gap and that spans both dots' centres, so the dots of an ellipsis on the baseline, or of a j and
+    an i side by side, never pair. A pair of small dots is added to comps
+    """
+    out = set()
+    for a in sorted(dots, key=lambda c: c["x0"]):
+        if a["id"] in out:
+            continue
+        w = a["x1"] - a["x0"]
+        for b in dots:
+            if b is a or b["id"] in out or not 0 <= b["x0"] - a["x1"] <= 2 * w:
+                continue
+            if max(a["area"], b["area"]) > 1.5 * min(a["area"], b["area"]) or min(a["y1"], b["y1"]) - max(a["y0"], b["y0"]) < 0.6 * min(a["y1"] - a["y0"], b["y1"] - b["y0"]):
+                continue
+            y1 = max(a["y1"], b["y1"])
+            ca, cb = (a["x0"] + a["x1"]) / 2, (b["x0"] + b["x1"]) / 2
+            if not any(o is not a and o is not b and 0 <= o["y0"] - y1 < gap and o["x0"] <= ca and o["x1"] >= cb for o in comps):
+                continue
+            s, c = (a, b) if any(o is a for o in comps) else (b, a)
+            if not any(o is s for o in comps):
+                comps.append(s)
+            s["ids"] = s["ids"] + c["ids"]
+            s["y0"], s["y1"], s["x0"], s["x1"] = min(a["y0"], b["y0"]), y1, min(a["x0"], b["x0"]), max(a["x1"], b["x1"])
+            s["area"] += c["area"]
+            used.add(c["id"])
+            out |= {a["id"], b["id"]}
+            break
+    return out
 
 
 def join_marks(lab, comps, used, cfg):
@@ -234,6 +273,9 @@ def coverage_units(g, lab, comps, paper, ink, allink, halo=HALO_PX, ring=None):
             cov=cov.astype(np.float32), box=(y0, y1, x0, x1), mask=m, halo_px=halo,
             cy=(c["y0"] + c["y1"]) / 2, cx=(c["x0"] + c["x1"]) / 2, bbox=(c["y0"], c["y1"], c["x0"], c["x1"]),
         )
+        if len(c["ids"]) > 1:
+            # each joined component's own mask, so a labelled i or j can be split into its stem and its dot
+            u["parts"] = [lab[y0:y1, x0:x1] == i for i in c["ids"]]
         if "region" in c:
             u["region"] = c["region"]
         if ring is not None:

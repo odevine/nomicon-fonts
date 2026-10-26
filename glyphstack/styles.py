@@ -9,6 +9,10 @@ from . import target
 
 # the face names of the default profile, for callers that mean those faces
 REGULAR, ITALIC = "regular", "italic"
+# the capital form of each accent has no code point of its own, so it is keyed by a Private Use character and named
+# the font editor's way, acute.case beside acute
+CASE = {"`": "\ue000", "´": "\ue001", "ˆ": "\ue002", "˜": "\ue003", "¨": "\ue004", "˚": "\ue005", "ˇ": "\ue006", "˙": "\ue007"}
+NAMES = {v: UV2AGL[ord(k)] + ".case" for k, v in CASE.items()} | {"ȷ": "dotlessj"}
 
 
 def faces():
@@ -64,7 +68,7 @@ def pair_key(a, b):
 
 def glyph_folder(ch):
     """Standard glyph name for a character, with a suffix on capitals so case-insensitive filesystems keep them apart"""
-    name = UV2AGL.get(ord(ch), f"uni{ord(ch):04X}")
+    name = NAMES.get(ch) or UV2AGL.get(ord(ch), f"uni{ord(ch):04X}")
     return name + "_uc" if ch.isupper() else name
 
 

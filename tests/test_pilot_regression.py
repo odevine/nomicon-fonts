@@ -27,6 +27,7 @@ def test_calibration_matches_pilot():
 def test_extraction_matches_pilot_unit_counts(name, angle, kept, scale):
     r = units.extract_scan(SCANS / f"{name}.png", angle)
     got, s = template.identify(r["units"], template.Templates(font.load_font(str(FONT))))
-    assert len(got) == kept
+    # the stems and dots split from i and j sit beside their letters and are not units of their own
+    assert len([u for u in got if "part_of" not in u]) == kept
     assert s == scale
     assert round(r["paper"]) == 189

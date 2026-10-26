@@ -58,6 +58,9 @@ dot_narrow_stem = 0.6
 dot_max_box = 24
 dot_stem_min_height = 30
 dot_max_gap = 25
+# keep accents apart from their letters: every dot needs a stem narrow at its top, as an i or j is, and two dots side
+# by side over a letter join each other as a diaeresis, so an accent is a mark of its own
+keep_marks = true
 # the parts of a punctuation mark joined into one unit, each no taller than mark_max_height: two quote halves at most
 # quote_max_gap apart side by side, the two bars of = equals_gap apart, a colon's or semicolon's dot colon_gap above its
 # dot or comma, and the dot of ! or ? foot_gap below the foot of its stem
@@ -68,7 +71,7 @@ colon_gap = [14, 40]
 foot_gap = [2, 16]
 
 [templates]
-charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ#$<=>@\\_|°²œ•…−„"
+charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ#$<=>@\\_|°²œ•…−„ı´`ˆ¨˜˚ˇ"
 # 4x grid px per em at print scale 1.0, vertical aspect and ink spread in grid px, from the pilot's solo scan `e`
 px_per_em = 591.72
 aspect = 1.0147
@@ -79,6 +82,10 @@ min_iou = 0.85
 min_margin = 0.10
 # pairs alike in shape that print at different heights, low one first, labelled by where the unit sits on its line
 twins = ["„”", "_–"]
+# a unit left unlabelled just over a labelled letter is tried against the accent templates alone, within this share
+# of their size and from this overlap, since printed accents differ from the measuring stick's more than letters do
+mark_size_tolerance = 0.3
+mark_min_iou = 0.7
 # top: the scale whose sample of 100 units has the best mean of its 25 best overlaps. count: the scale at which the
 # most units are labelled, which stays on the peak when texture lowers every overlap
 scale_search = "count"

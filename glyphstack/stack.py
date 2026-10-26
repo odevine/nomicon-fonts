@@ -556,12 +556,13 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
         for i, members in enumerate(order[ch]):
             kk = members[0]
             card = scans[kk[0]]["card"]
+            anchor = scans[kk[0]]["units"][kk[1]].get("anchor")
             rows.append(dict(
                 char=ch, pair_id=f"{card}:{ch}:{kk[0]}:{kk[1]}", card=card, kept=bool(keep[i]),
                 scans=[m[0] for m in members], units=[m[1] for m in members], edge_level=[levels[m[0]] for m in members],
                 halo_px=[scans[m[0]]["units"][m[1]]["halo_px"] for m in members], card_scale=float(np.sqrt(card_S[card][0, 0] * card_S[card][1, 1])),
                 print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev[i],
-            ))
+            ) | (dict(anchor=anchor) if anchor else {}))
         stacks[ch] = dict(st, n_units=len(by_char[ch]), n_dropped=int((~keep).sum()), cards=stack_cards)
         log.debug("%r: %d instances from %d cards, %d dropped, LOO IoU %.3f", ch, st["n"], len(stack_cards), stacks[ch]["n_dropped"], st["loo"].mean())
     with_dev = [r for r in rows if r.get("pair_dev_um") is not None]

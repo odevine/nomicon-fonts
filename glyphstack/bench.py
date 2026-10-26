@@ -22,6 +22,7 @@ sizes do not move each other's stacks, and each instance's edge deviation is rep
 """
 import argparse
 import json
+import unicodedata
 import os
 import pickle
 from concurrent.futures import as_completed
@@ -31,7 +32,7 @@ import cv2
 import numpy as np
 from scipy import ndimage as ndi
 
-from . import calibration, cards, font, stack, styles, target, texture, truth, units
+from . import calibration, cards, font, stack, styles, target, template, texture, truth, units
 from .log import Progress, add_args, announce, log, pool, start
 from .scan import load_gray
 
@@ -94,6 +95,17 @@ def upright_frame(path, angle):
     return up, tuple(int(round(v)) for v in frame)
 
 
+def read_as(ch):
+    """The base letter and the spacing accent an accented character is labelled as, or the character and None
+
+    The base under an accented i is its dotless stem
+    """
+    d = unicodedata.normalize("NFD", ch)
+    if len(d) != 2 or d[1] not in template.MARKS:
+        return ch, None
+    return template.DOTLESS.get(d[0], d[0]), template.MARKS[d[1]]
+
+
 def reaches(u, c):
     """Whether a unit's own ink reaches the middle half of a character's box, true for a unit without a mask"""
     if "mask" not in u:
@@ -112,13 +124,16 @@ def score(all_units, kept, chars, ignore=()):
     character's box, is a find of it. When the box holds several centres, as a kerned neighbour's or an italic
     overhang's can be, only the characters whose middle the unit's own ink reaches count. A unit holding two or more
     of those is merged, one near a box that holds none
-    is a fragment and one away from every box is stray. A find is right when its label is the character in its face.
-    Units centred on a character in `ignore`, one cut by the scan's edge or too poorly placed to trust, are not counted
+    is a fragment and one away from every box is stray. A find is right when its label is the character in its face,
+    or for an accented letter its base. A unit labelled as an accent and centred on an accented letter is that letter's
+    mark, right when it is the letter's accent. Units centred on a character in `ignore`, one cut by the scan's edge or
+    too poorly placed to trust, are not counted
     """
     tc = np.array([((c["y0"] + c["y1"]) / 2, (c["x0"] + c["x1"]) / 2) for c in chars])
     ty0, ty1 = min(c["y0"] for c in chars) - 20, max(c["y1"] for c in chars) + 20
     tx0, tx1 = min(c["x0"] for c in chars) - 20, max(c["x1"] for c in chars) + 20
-    labels = {tuple(u["bbox"]): u["ch"] for u in kept}
+    # the stems and dots split from i and j share the whole letter's ink, so only the letter is scored
+    labels = {tuple(u["bbox"]): u["ch"] for u in kept if "part_of" not in u}
     found, rows = {}, []
     for u in all_units:
         y0, y1, x0, x1 = u["bbox"]
@@ -145,11 +160,24 @@ def score(all_units, kept, chars, ignore=()):
             r["kind"] = "fragment" if near else "stray"
         rows.append(r)
     finds = {i: r for i, (_, r) in found.items()}
+    plain = {v: k for k, v in styles.CASE.items()}
+    accents = set(template.MARKS.values()) | set(plain)
     for r in rows:
         if r["kind"] == "found" and finds.get(r["char"]) is not r:
             r["kind"] = "fragment"
-    out = dict(truth=len(chars), ignored=len(ignore), found=len(finds), merged=0, fragments=0, stray=0, labelled=0, right=0, wrong_face=0, wrong=0, false_labels=0)
+        if r["label"] and styles.char_of(r["label"]) in accents and r["kind"] != "found":
+            y0, y1, x0, x1 = r["bbox"]
+            cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
+            on = [i for i, c in enumerate(chars) if read_as(c["ch"])[1] and c["y0"] - FIND_PX <= cy <= c["y1"] + FIND_PX and c["x0"] - FIND_PX <= cx <= c["x1"] + FIND_PX]
+            if on:
+                r["kind"], r["char"] = "mark", on[0]
+    out = dict(truth=len(chars), ignored=len(ignore), found=len(finds), merged=0, fragments=0, stray=0, labelled=0, right=0, wrong_face=0, wrong=0, false_labels=0,
+               marks=0, marks_right=0)
     for r in rows:
+        if r["kind"] == "mark":
+            out["marks"] += 1
+            out["marks_right"] += plain.get(styles.char_of(r["label"]), styles.char_of(r["label"])) == read_as(chars[r["char"]]["ch"])[1]
+            continue
         if r["kind"] in ("merged", "stray"):
             out[r["kind"]] += 1
         elif r["kind"] == "fragment":
@@ -161,10 +189,10 @@ def score(all_units, kept, chars, ignore=()):
             continue
         c = chars[r["char"]]
         out["labelled"] += 1
-        key = styles.key(c["face"], c["ch"])
-        if r["label"] == key:
+        base = read_as(c["ch"])[0]
+        if r["label"] == styles.key(c["face"], base):
             out["right"] += 1
-        elif styles.char_of(r["label"]) == c["ch"]:
+        elif styles.char_of(r["label"]) == base:
             out["wrong_face"] += 1
         else:
             out["wrong"] += 1
@@ -382,7 +410,7 @@ def cmd_score(a):
                 continue
             c = chars[u["char"]]
             b = bg[u["char"]]
-            key = styles.key(c["face"], c["ch"])
+            key = styles.key(c["face"], read_as(c["ch"])[0])
             cell = split.setdefault(f"{c['face']}/{b or 'between'}", dict(found=0, right=0))
             cell["found"] += 1
             if u["label"] == key:
@@ -397,7 +425,8 @@ def cmd_score(a):
                                   ring={b: ring_height(p) for b, p in profiles.items()})
     for card in sorted({r["card"] for r in rows}):
         stems = [r["path"].stem for r in rows if r["card"] == card]
-        sc = {s: caches[s] for s in stems}
+        # stacked from whole letters only, so the measure stays comparable across profiles that split i and j
+        sc = {s: dict(caches[s], units=[u for u in caches[s]["units"] if "part_of" not in u]) for s in stems}
         if max(np.unique([u["ch"] for s in sc.values() for u in s["units"]], return_counts=True)[1], default=0) < CARD_MIN_UNITS:
             res["cards"][card] = dict(stacked=0)
             continue

@@ -9,6 +9,12 @@ from .log import log
 from .register import pmap
 
 UP = 4
+# combining accents and the spacing accent each face draws for them, whose template a mark printed over a letter takes
+MARKS = {"\u0300": "`", "\u0301": "´", "\u0302": "ˆ", "\u0303": "˜", "\u0307": "˙", "\u0308": "¨", "\u030A": "˚", "\u030C": "ˇ"}
+# the base an accent sits on, where it differs from the letter's own, as the dotless stem under an accented i
+DOTLESS = {"i": "ı", "j": "ȷ"}
+# how far a part's coverage reaches past its own ink when a dotted letter is split, in scan px
+PART_PX = 4
 
 
 def render_templates(font, scale=1.0, chars=None, style=None):
@@ -75,15 +81,15 @@ def best_iou(um, tm, search=12):
     return best
 
 
-def classify(cov, templates, top=3):
-    """Returns the best (iou, char) candidates for one coverage map, best first"""
+def classify(cov, templates, top=3, tol=0.10):
+    """Returns the best (iou, char) candidates for one coverage map, best first, from templates within tol of its size"""
     um = unit_mask4(cov)
     if um is None:
         return []
     h, w = um.shape[0] / UP, um.shape[1] / UP
     res = []
     for ch, t in templates.items():
-        if abs(t["h"] - h) > max(0.10 * t["h"], 3) or abs(t["w"] - w) > max(0.10 * t["w"], 3):
+        if abs(t["h"] - h) > max(tol * t["h"], 3) or abs(t["w"] - w) > max(tol * t["w"], 3):
             continue
         res.append((best_iou(um, t["mask"]), ch))
     return sorted(res, reverse=True)[:top]
@@ -121,7 +127,7 @@ def find_scale(units, templates, seed=0, lo=None, hi=None, around=None):
     sample = [units[i] for i in rng.choice(len(units), min(100, len(units)), replace=False)]
 
     def score(s):
-        t = templates.at(s, only=(styles.primary(),))
+        t = in_context_out(templates.at(s, only=(styles.primary(),)))
         v = [(c or [(0, "")])[0][0] for c in pmap(lambda u: classify(u["cov"], t, top=1), sample)]
         return float(np.mean(sorted(v)[-25:]))
 
@@ -195,7 +201,125 @@ def identify(units, templates, scale=None, around=None):
     kept = label(units, t, scale)
     for _ in range(cfg.get("self_rounds", 0)):
         kept = label(units, card_templates(kept, t, cfg.get("self_min_units", 3)), scale)
-    return kept, scale
+    if "mark_min_iou" in cfg:
+        kept = kept + label_marks(units, kept, t, scale)
+        kept = kept + split_dotted(kept, templates, scale)
+    return anchor_marks(kept, templates, scale), scale
+
+
+def anchor(mark, base, templates, scale):
+    """A mark's place on its base in x-heights of the base's face: its ink centre across less the base's, and the gap from its foot to the base's top"""
+    em = target.get()["templates"]["px_per_em"] / UP * scale
+    font = templates.fonts[styles.style_of(base["ch"])]
+    xh = font["OS/2"].sxHeight / font["head"].unitsPerEm * em
+    y0, y1, x0, x1 = mark["bbox"]
+    dx = ((x0 + x1) - (base["bbox"][2] + base["bbox"][3])) / 2 / xh
+    return dict(base=base["ch"], dx=round(float(dx), 3), gap=round(float((base["bbox"][0] - y1) / xh), 3))
+
+
+def part(u, m, ch):
+    """The part of a unit under mask m as a unit of its own, its coverage cut to the part's ink plus PART_PX"""
+    win = ndi.binary_dilation(m, iterations=PART_PX)
+    ys, xs = np.nonzero(win)
+    a0, a1, b0, b1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    my, mx = np.nonzero(m)
+    by0, _, bx0, _ = u["box"]
+    bbox = (by0 + my.min(), by0 + my.max() + 1, bx0 + mx.min(), bx0 + mx.max() + 1)
+    out = {k: v for k, v in u.items() if k not in ("parts", "ncov", "nbox", "anchor")}
+    out.update(cov=(u["cov"] * win)[a0:a1, b0:b1].astype(np.float32), mask=m[a0:a1, b0:b1], box=(by0 + a0, by0 + a1, bx0 + b0, bx0 + b1),
+               bbox=bbox, cy=(bbox[0] + bbox[1]) / 2, cx=(bbox[2] + bbox[3]) / 2, ch=ch, part_of=u["ch"])
+    return out
+
+
+def split_dotted(kept, templates, scale):
+    """Each labelled i and j split into its stem, keyed as the dotless letter, and its dot, keyed as the dot accent with its anchor
+
+    The parts are kept beside the whole letter and carry part_of, so the letter still stacks whole while its stem and
+    dot feed the stacks most accented letters are composed from. A part's coverage cannot be read from the native
+    pixels of a turned scan, so parts take the upright coverage
+    """
+    out = []
+    for u in kept:
+        ch = styles.char_of(u["ch"])
+        if ch not in DOTLESS or len(u.get("parts", [])) < 2:
+            continue
+        face = styles.style_of(u["ch"])
+        stem = max(u["parts"], key=lambda m: m.sum())
+        s = part(u, stem, styles.key(face, DOTLESS[ch]))
+        out.append(s)
+        for m in u["parts"]:
+            if m is not stem:
+                d = part(u, m, styles.key(face, MARKS["\u0307"]))
+                out.append(dict(d, anchor=anchor(d, s, templates, scale)))
+    return out
+
+
+def in_context_out(t):
+    """The templates without the accents and dotless letters, which are labelled only where a letter carries a mark"""
+    skip = set(MARKS.values()) | set(DOTLESS.values())
+    return {k: v for k, v in t.items() if styles.char_of(k) not in skip}
+
+
+def label_marks(units, kept, t, scale):
+    """Labels units left unlabelled that sit just over a letter as accents, against the accent templates alone
+
+    A printed accent can differ from the measuring stick's more than a letter does, as a capital's acute is lower and
+    a circumflex narrower, so these templates take sizes within mark_size_tolerance and overlaps from mark_min_iou.
+    The letter under the mark, a unit at least 0.3 em tall within half an em, keeps a speck of texture or a stray mark
+    from taking an accent. A letter under a mark that is itself unlabelled is tried against the dotless templates,
+    so the stem under an ï takes ı
+    """
+    cfg = target.get()["templates"]
+    accents, dotless = set(MARKS.values()), set(DOTLESS.values())
+    marks = {k: v for k, v in t.items() if styles.char_of(k) in accents}
+    bare = {k: v for k, v in t.items() if styles.char_of(k) in dotless}
+    done = {tuple(k["bbox"]) for k in kept}
+    em = cfg["px_per_em"] / UP * scale
+    under = lambda u: [k for k in units if k["bbox"][1] - k["bbox"][0] >= 0.3 * em and 0 <= k["bbox"][0] - u["bbox"][1] < 0.5 * em
+                       and k["bbox"][2] < u["bbox"][3] and k["bbox"][3] > u["bbox"][2]]
+    todo = [u for u in units if tuple(u["bbox"]) not in done and u["bbox"][1] - u["bbox"][0] < 0.35 * em and under(u)]
+    out = []
+    for u, c in zip(todo, pmap(lambda u: classify(u["cov"], marks, top=4, tol=cfg["mark_size_tolerance"]), todo)):
+        if not c or c[0][0] < cfg["mark_min_iou"]:
+            continue
+        rival = next((r for r in c[1:] if styles.char_of(r[1]) != styles.char_of(c[0][1])), None)
+        margin = c[0][0] - (rival[0] if rival else 0)
+        if margin < cfg["min_margin"]:
+            continue
+        out.append(dict(u, ch=c[0][1], iou=c[0][0], margin=margin, scale=scale))
+        base = min(under(u), key=lambda k: k["bbox"][0] - u["bbox"][1])
+        if tuple(base["bbox"]) not in done and bare:
+            b = classify(base["cov"], bare, top=1)
+            if b and b[0][0] >= cfg["min_iou"]:
+                out.append(dict(base, ch=b[0][1], iou=b[0][0], margin=b[0][0], scale=scale))
+                done.add(tuple(base["bbox"]))
+    return out
+
+
+def anchor_marks(kept, templates, scale):
+    """Gives each unit labelled as an accent the base letter under it, that letter's face, and its anchor in x-heights of that face
+
+    The base is the nearest labelled letter whose top lies under the mark within half an em and that overlaps it across.
+    A mark over a capital takes its accent's capital form. The dots split from i and j already carry their anchors
+    """
+    accents = set(MARKS.values())
+    em = target.get()["templates"]["px_per_em"] / UP * scale
+    out = []
+    for u in kept:
+        if styles.char_of(u["ch"]) not in accents or "anchor" in u:
+            out.append(u)
+            continue
+        y0, y1, x0, x1 = u["bbox"]
+        under = [k for k in kept if styles.char_of(k["ch"]) not in accents and 0 <= k["bbox"][0] - y1 < 0.5 * em and k["bbox"][2] < x1 and k["bbox"][3] > x0]
+        if not under:
+            out.append(u)
+            continue
+        base = min(under, key=lambda k: k["bbox"][0] - y1)
+        # accents look alike in both faces, so a mark takes the face of the letter it sits on, and over a capital its capital form
+        acc = styles.char_of(u["ch"])
+        ch = styles.key(styles.style_of(base["ch"]), styles.CASE[acc] if styles.char_of(base["ch"]).isupper() else acc)
+        out.append(dict(u, ch=ch, anchor=anchor(u, base, templates, scale)))
+    return out
 
 
 def label(units, t, scale):
@@ -207,6 +331,7 @@ def label(units, t, scale):
     cfg = target.get()["templates"]
     min_iou, min_margin = cfg["min_iou"], cfg["min_margin"]
     twins = cfg.get("twins", [])
+    t = in_context_out(t)
     kept, tied = [], []
     for u, c in zip(units, pmap(lambda u: classify(u["cov"], t, top=5), units)):
         if not c or c[0][0] < min_iou:

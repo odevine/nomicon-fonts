@@ -130,3 +130,34 @@ def test_the_bars_of_an_equals_sign_join_and_dashes_on_two_lines_do_not():
     g[170:182, 200:280] = 20
     _, comps = units.segment(g)
     assert ids(comps) == [1, 1, 2]
+
+
+def test_a_diaeresis_stays_one_mark_over_a_dotless_stem_and_an_acute_stays_off_its_letter():
+    target.use(target.DEFAULT)
+    g = page()
+    # an ï: a 12 px stem 60 px tall with foot serifs and two round dots side by side over it
+    g[100:160, 100:112] = 20
+    g[152:160, 92:120] = 20
+    g[82:96, 92:106] = 20
+    g[82:96, 108:122] = 20
+    # an É: a capital's wide top with a slanted acute over it
+    g[60:160, 200:212] = 20
+    g[60:70, 200:285] = 20
+    g[105:113, 200:270] = 20
+    g[150:160, 200:285] = 20
+    for k in range(18):
+        g[38 + k, 245 - k : 254 - k] = 20
+    _, comps = units.segment(g)
+    assert sorted((c["y1"] - c["y0"], len(c["ids"])) for c in comps) == [(14, 2), (18, 1), (60, 1), (100, 1)]
+
+
+def test_the_dots_of_a_j_and_an_i_side_by_side_stay_on_their_stems():
+    target.use(target.DEFAULT)
+    g = page()
+    # j and i stems 12 px wide and 6 px apart, each with its own round dot
+    g[100:175, 100:112] = 20
+    g[100:160, 118:130] = 20
+    g[82:96, 99:113] = 20
+    g[82:96, 117:131] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [2, 2]
