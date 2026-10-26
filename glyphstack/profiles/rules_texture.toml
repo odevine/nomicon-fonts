@@ -48,7 +48,7 @@ ink_level = 120
 # component size limits in scan px
 min_area = 150
 min_height = 8
-max_size = 150
+max_size = 180
 # a small component above a tall one joins it, for the dots of i and j, when it overlaps the stem's top end
 dot_max_area = 700
 # a dot this small, below min_area, joins only a stem whose top is at most dot_narrow_stem of its height across, as an
@@ -68,7 +68,7 @@ colon_gap = [14, 40]
 foot_gap = [2, 16]
 
 [templates]
-charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ#$<=>@\\_|°²œ•…−"
+charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ#$<=>@\\_|°²œ•…−„"
 # 4x grid px per em at print scale 1.0, vertical aspect and ink spread in grid px, from the pilot's solo scan `e`
 px_per_em = 591.72
 aspect = 1.0147
@@ -77,6 +77,8 @@ ink_spread = 1.55
 scale_range = [0.80, 1.06]
 min_iou = 0.85
 min_margin = 0.10
+# pairs alike in shape that print at different heights, low one first, labelled by where the unit sits on its line
+twins = ["„”", "_–"]
 # top: the scale whose sample of 100 units has the best mean of its 25 best overlaps. count: the scale at which the
 # most units are labelled, which stays on the peak when texture lowers every overlap
 scale_search = "count"

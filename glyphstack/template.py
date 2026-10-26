@@ -199,31 +199,65 @@ def identify(units, templates, scale=None, around=None):
 
 
 def label(units, t, scale):
-    """Labels units against one template set at the given scale, keeping those that clear min_iou and min_margin"""
-    min_iou, min_margin = target.get()["templates"]["min_iou"], target.get()["templates"]["min_margin"]
+    """Labels units against one template set at the given scale, keeping those that clear min_iou and min_margin
+
+    Two characters of the profile's twins, alike in shape and told apart by where they print, such as „ and ”, are
+    not a tie of characters: the unit takes the low one of the pair when it sits on its line's baseline
+    """
+    cfg = target.get()["templates"]
+    min_iou, min_margin = cfg["min_iou"], cfg["min_margin"]
+    twins = cfg.get("twins", [])
     kept, tied = [], []
-    for u, c in zip(units, pmap(lambda u: classify(u["cov"], t), units)):
+    for u, c in zip(units, pmap(lambda u: classify(u["cov"], t, top=5), units)):
         if not c or c[0][0] < min_iou:
             continue
         # a runner-up that is the same character in the other face is a tie of faces, not of characters
         rival = next((r for r in c[1:] if styles.char_of(r[1]) != styles.char_of(c[0][1])), None)
         margin = c[0][0] - (rival[0] if rival else 0)
         if margin < min_margin:
-            continue
+            pair = next((p for p in twins if rival and {styles.char_of(c[0][1]), styles.char_of(rival[1])} == set(p)), None)
+            ch = pair and place_twin(u, units, scale, pair)
+            if not ch:
+                continue
+            c = [r for r in c if styles.char_of(r[1]) == ch] + [r for r in c if styles.char_of(r[1]) not in pair]
+            rival = next((r for r in c[1:] if styles.char_of(r[1]) != ch), None)
+            margin = c[0][0] - (rival[0] if rival else 0)
+            if c[0][0] < min_iou or margin < min_margin:
+                continue
         same = [r for r in c[1:] if styles.char_of(r[1]) == styles.char_of(c[0][1]) and c[0][0] - r[0] < min_margin]
         unit = dict(u, ch=c[0][1], iou=c[0][0], margin=margin, scale=scale)
         (tied if same else kept).append(unit)
     return kept + resolve_faces(tied, kept)
 
 
+def place_twin(u, units, scale, pair):
+    """The low or the high character of a twin pair, from where the unit sits against the baseline of the letters beside it
+
+    The baseline is the median foot of the units within six ems along the line that are at least 0.3 em tall. The unit is
+    the low twin when its centre lies below 0.12 em over that baseline, None when it has no letters beside it
+    """
+    em = target.get()["templates"]["px_per_em"] / UP * scale
+    y0, y1, x0, x1 = u["bbox"]
+    cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
+    near = [o["bbox"][1] for o in units if o is not u and abs((o["bbox"][2] + o["bbox"][3]) / 2 - cx) < 6 * em
+            and abs((o["bbox"][0] + o["bbox"][1]) / 2 - cy) < 0.45 * em and o["bbox"][1] - o["bbox"][0] >= 0.3 * em]
+    if not near:
+        return None
+    return pair[0] if cy > np.median(near) - 0.12 * em else pair[1]
+
+
 def resolve_faces(tied, kept):
     """Gives units whose character is clear but whose face is not (a full stop looks the same in both) the face of the nearest unit on their line
 
-    Units with no face-certain unit on their line take the primary face
+    A unit is on the line when its height overlaps the tied unit's widened by 0.3 em either way, so a mark that sits low
+    or high, such as an underscore, still finds the letters beside it. Units with no face-certain unit on their line take
+    the primary face
     """
     out = []
     for u in tied:
-        near = [k for k in kept if abs(k["cy"] - u["cy"]) < 0.5 * (u["bbox"][1] - u["bbox"][0]) + 20]
+        pad = 0.3 * target.get()["templates"]["px_per_em"] / UP * u.get("scale", 1.0)
+        y0, y1 = u["bbox"][0] - pad, u["bbox"][1] + pad
+        near = [k for k in kept if k["bbox"][0] < y1 and k["bbox"][1] > y0]
         face = styles.style_of(min(near, key=lambda k: abs(k["cx"] - u["cx"]))["ch"]) if near else styles.primary()
         out.append(dict(u, ch=styles.key(face, styles.char_of(u["ch"]))))
     return out
