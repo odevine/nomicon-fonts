@@ -6,6 +6,7 @@ example. File paths are relative to the cards file. Every scan of a card is matc
 card needs at least two scans for its glyph views to be grouped
 """
 import argparse
+import hashlib
 import json
 import os
 import pickle
@@ -18,6 +19,16 @@ from . import calibration, cards, font, fontfit, stack, target, template, units
 from .log import Progress, add_args, announce, log, pool, start, timed
 
 CACHE_VERSION = 2
+# the modules that find, measure and label units, whose source is hashed into the cache key so a change to any reruns extraction
+EXTRACTION = ("units", "texture", "scan", "template", "font", "styles")
+
+
+def extraction_code():
+    """sha256 of the source of the modules that produce a scan's cached units"""
+    h = hashlib.sha256()
+    for m in EXTRACTION:
+        h.update((Path(__file__).parent / f"{m}.py").read_bytes())
+    return h.hexdigest()
 
 
 def read_scans(path):
@@ -48,24 +59,24 @@ def extract_card(jobs, scale=None):
         kept, scale = template.identify(r["units"], _TEMPLATES, around=scale)
         log.info("kept %d of %d units at print scale %.3f", len(kept), len(r["units"]), scale)
         out[path.stem] = dict(units=kept, scale=scale, card=card, angle=angle, to_up=r["to_up"],
-                              paper=r["paper"], ink=r["ink"], faces=faces, profile=target.get().sha256, version=CACHE_VERSION)
+                              paper=r["paper"], ink=r["ink"], faces=faces, profile=target.get().sha256, version=CACHE_VERSION, code=extraction_code())
         prog.step(f"{path.name}, {len(kept)} units")
     return out
 
 
 def extract_all(rows, work, font_paths, workers=None):
-    """Extracts and labels every scan, one card per process, reusing cached results built with the same faces and profile from the work folder"""
+    """Extracts and labels every scan, one card per process, reusing cached results built with the same faces, profile and extraction code from the work folder"""
     faces = sorted(font_paths)
-    prof = target.get()
+    prof, code = target.get(), extraction_code()
     scans, todo = {}, defaultdict(list)
     for path, card, angle in rows:
         cache = work / "units" / f"{path.stem}.pkl"
         if cache.exists():
             cached = pickle.load(cache.open("rb"))
-            if cached.get("faces") == faces and cached.get("profile") == prof.sha256 and cached.get("version") == CACHE_VERSION:
+            if cached.get("faces") == faces and cached.get("profile") == prof.sha256 and cached.get("version") == CACHE_VERSION and cached.get("code") == code:
                 scans[path.stem] = cached
                 continue
-            log.info("%s cache was built with other faces, another profile or an older pipeline, rebuilding", path.name)
+            log.info("%s cache was built with other faces, another profile or other extraction code, rebuilding", path.name)
         todo[card].append((path, card, angle))
     log.info("%d scans from cache, %d to extract from %d cards", len(scans), sum(map(len, todo.values())), len(todo))
     (work / "units").mkdir(parents=True, exist_ok=True)
