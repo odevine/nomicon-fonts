@@ -1,12 +1,11 @@
 """Runs a scanning session end to end: calibration gate, glyph extraction, labelling, stacking and tracing
 
-The scan table is a CSV with the columns file, card and angle, the card's counterclockwise turn in degrees as it
-appears in the scan image (0, 15, 30, 45, 90, 105 and so on). The README's Writing a scan table section has an example.
-File paths are relative to the CSV. Every scan of a card is matched to the card's upright scan, so each card needs
-at least two scans for its glyph views to be grouped
+The scans come from a cards file, which gives each scan's card and angle, the card's counterclockwise turn in degrees
+as it appears in the scan image (0, 15, 30, 45, 90, 105 and so on). The README's Writing a cards file section has an
+example. File paths are relative to the cards file. Every scan of a card is matched to the card's upright scan, so each
+card needs at least two scans for its glyph views to be grouped
 """
 import argparse
-import csv
 import json
 import os
 import pickle
@@ -15,30 +14,15 @@ from collections import defaultdict
 from concurrent.futures import as_completed
 from pathlib import Path
 
-from . import calibration, font, fontfit, stack, target, template, units
+from . import calibration, cards, font, fontfit, stack, target, template, units
 from .log import Progress, add_args, announce, log, pool, start, timed
 
 CACHE_VERSION = 2
 
 
-def read_table(path):
-    """Reads the scan table into a list of (scan path, card, angle in degrees)"""
-    path = Path(path)
-    rows = []
-    for r in csv.DictReader(path.open()):
-        if not r.get("angle", "").strip():
-            raise SystemExit(f"give an angle in degrees for {r['file']}")
-        angle = float(r["angle"])
-        rows.append((path.parent / r["file"], r["card"], angle))
-    cards = defaultdict(list)
-    for _, card, angle in rows:
-        cards[card].append(angle)
-    for card, angles in cards.items():
-        if len(angles) < 2:
-            log.warning("card %s has one scan, its glyphs have one view each", card)
-        if not any(a % 360 == 0 for a in angles):
-            log.warning("card %s has no upright scan, its first scan is the reference", card)
-    return rows
+def read_scans(path):
+    """The cards file's scans as (scan path, card, angle in degrees)"""
+    return [(r["path"], r["card"], r["angle"]) for r in cards.scans(path)]
 
 
 _TEMPLATES = None
@@ -101,7 +85,7 @@ def extract_all(rows, work, font_paths, workers=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("table", help="scan table CSV")
+    ap.add_argument("cards", help="the scan folder's cards file")
     ap.add_argument("-o", "--out", default="build/session", help="output folder")
     target.add_args(ap)
     ap.add_argument("--cal-a", help="calibration scan with the sheet upright")
@@ -133,7 +117,7 @@ def main():
     else:
         log.warning("no calibration scans given, scale is unchecked")
 
-    rows = read_table(a.table)
+    rows = read_scans(a.cards)
     font_paths = target.font_paths(a)
     fonts = {st: font.load_font(p) for st, p in font_paths.items()}
     with timed("extraction and labelling"):

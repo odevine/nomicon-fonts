@@ -1,14 +1,13 @@
 """Scores a session against the printed text of its cards, with the measures the scan cleaning work is judged on
 
-    python -m glyphstack.bench truth TABLE --font REGULAR.ttf --italic-font ITALIC.ttf
-    python -m glyphstack.bench check TABLE
-    python -m glyphstack.bench score SESSION TABLE
+    python -m glyphstack.bench truth CARDS --font REGULAR.ttf --italic-font ITALIC.ttf
+    python -m glyphstack.bench check CARDS
+    python -m glyphstack.bench score SESSION CARDS
 
-The table is the session's scan table with a `name` column holding each card's printed name as the scan list's Card
-text sheet spells it, and optionally a `box` column of y0 y1 x0 x1 fractions of the card for a frame whose rules box
-sits elsewhere. A card the scan cut off along an edge is measured from its intact edges. Corrections to the sheet's
-text can go in `card_texts.json` beside the table, a map from printed name to text in the sheet's format. `truth` places every printed character of each scan with `truth.fit` and writes
-`<scan stem>.json` and an overlay `<scan stem>.png` to the truth folder, default `truth/` beside the table. The truth
+CARDS is the session's cards file, which gives each card's printed text and optionally its rules `box` as y0 y1 x0 x1
+fractions of the card for a frame whose rules box sits elsewhere. A card the scan cut off along an edge is measured
+from its intact edges. `truth` places every printed character of each scan with `truth.fit` and writes
+`<scan stem>.json` and an overlay `<scan stem>.png` to the truth folder, default `truth/` beside the cards file. The truth
 comes from card scans and the card text, so it stays outside git with them. `check` flags scans whose truth looks off:
 characters left unplaced, a low glyph correlation over the scan or on one line, or a disagreement in line count or
 print scale with the other scan of the card, which usually means the card text differs from what is printed.
@@ -22,7 +21,6 @@ outside the strongly screened glyphs' edges. Each card is then stacked on its ow
 sizes do not move each other's stacks, and each instance's edge deviation is reported by its background
 """
 import argparse
-import csv
 import json
 import os
 import pickle
@@ -31,14 +29,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import openpyxl
 from scipy import ndimage as ndi
 
-from . import calibration, font, stack, styles, target, texture, truth, units
+from . import calibration, cards, font, stack, styles, target, texture, truth, units
 from .log import Progress, add_args, announce, log, pool, start
 from .scan import load_gray
 
-XLSX = Path(__file__).resolve().parents[1] / "notes" / "mtg_rules_scan_list.xlsx"
 # a unit's centre may sit this far outside its character's box and still be a find of it
 FIND_PX = 6
 # glyphs are stacked per card from this many units, fewer than a session's since one card has few of each
@@ -52,35 +48,14 @@ CARD_MM = (63.0, 88.0)
 CARD_MARGIN_PX = 20
 
 
-def read_table(path):
-    """The scan table's rows as dicts with the scan path, card, angle, printed name and rules box"""
-    path = Path(path)
-    rows = []
-    for r in csv.DictReader(path.open()):
-        if not r.get("name", "").strip():
-            raise SystemExit(f"give the printed card name for {r['file']} in a name column")
-        box = tuple(float(v) for v in r["box"].split()) if r.get("box", "").strip() else truth.BOX
-        rows.append(dict(path=path.parent / r["file"], card=r["card"], angle=float(r["angle"]), name=r["name"].strip(), box=box))
+def read_scans(path):
+    """The cards file's scans as dicts with the scan path, card, angle, printed name, text and rules box"""
+    rows = cards.scans(path)
+    for r in rows:
+        if not r["text"]:
+            raise SystemExit(f"card {r['card']} has no text in {path}")
+        r["box"] = tuple(r["box"]) if r["box"] else truth.BOX
     return rows
-
-
-def card_texts(xlsx=XLSX, overrides=None):
-    """{printed name: text} from the scan list's Card text sheet, with any card in the overrides JSON file replacing it
-
-    The overrides file maps printed names to text in the sheet's format, for corrections the sheet does not have yet
-    """
-    ws = openpyxl.load_workbook(xlsx, read_only=True)["Card text"]
-    texts = {r[1]: r[5] for r in ws.iter_rows(min_row=2, values_only=True) if r[1] and r[5]}
-    if overrides and Path(overrides).exists():
-        fixes = json.loads(Path(overrides).read_text())
-        for name in fixes:
-            log.info("text of %s from %s", name, overrides)
-        texts.update(fixes)
-    return texts
-
-
-def overrides_path(a):
-    return Path(a.texts) if a.texts else Path(a.table).parent / "card_texts.json"
 
 
 def upright_crop(path, angle):
@@ -284,23 +259,20 @@ def truth_scan(r, text, out):
 
 
 def cmd_truth(a):
-    rows = read_table(a.table)
-    out = Path(a.out or Path(a.table).parent / "truth")
+    rows = read_scans(a.cards)
+    out = Path(a.out or Path(a.cards).parent / "truth")
     out.mkdir(parents=True, exist_ok=True)
     prof = target.use(a.profile or target.DEFAULT)
-    texts = card_texts(a.xlsx, overrides_path(a))
     todo = []
     for r in rows:
         if (out / f"{r['path'].stem}.json").exists() and not a.force:
             log.info("%s has truth, pass --force to fit it again", r["path"].name)
             continue
-        if r["name"] not in texts:
-            raise SystemExit(f"{r['name']} is not in the Card text sheet")
         todo.append(r)
     paths = {"regular": a.font, "italic": a.italic_font}
     prog = Progress("fitting truth", len(todo))
     with pool(a.workers or os.cpu_count() or 1, _init_truth, (prof.path, paths)) as ex:
-        futs = {ex.submit(truth_scan, r, texts[r["name"]], out): r for r in todo}
+        futs = {ex.submit(truth_scan, r, r["text"], out): r for r in todo}
         for f in as_completed(futs):
             try:
                 announce("%s", f.result())
@@ -365,9 +337,8 @@ def check(truths, expected):
 
 
 def cmd_check(a):
-    rows = read_table(a.table)
-    tdir = Path(a.truth or Path(a.table).parent / "truth")
-    texts = card_texts(a.xlsx, overrides_path(a))
+    rows = read_scans(a.cards)
+    tdir = Path(a.truth or Path(a.cards).parent / "truth")
     truths, expected = {}, {}
     for r in rows:
         f = tdir / f"{r['path'].stem}.json"
@@ -375,7 +346,7 @@ def cmd_check(a):
             log.warning("%s has no truth", r["path"].name)
             continue
         truths[r["path"].stem] = load_truth(f)
-        expected[r["path"].stem] = len(expected_chars(texts[r["name"]]))
+        expected[r["path"].stem] = len(expected_chars(r["text"]))
     res = check(truths, expected)
     (tdir / "check.json").write_text(json.dumps(res, indent=1, ensure_ascii=False))
     w = max(len(s) for s in res["scans"]) + 2
@@ -389,8 +360,8 @@ def cmd_score(a):
     session = Path(a.session)
     prof = json.loads((session / "manifest.json").read_text())["profile"]
     target.use(prof["path"])
-    rows = read_table(a.table)
-    tdir = Path(a.truth or Path(a.table).parent / "truth")
+    rows = read_scans(a.cards)
+    tdir = Path(a.truth or Path(a.cards).parent / "truth")
     res = dict(session=str(session), profile=prof["name"], scans={}, cards={})
     caches, tags = {}, {}
     for r in rows:
@@ -471,30 +442,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("truth", help="fit every printed character of each scan from its card's text")
-    t.add_argument("table")
+    t.add_argument("cards", help="the scan folder's cards file")
     t.add_argument("--font", required=True, help="the regular face's TrueType font, a measuring stick never copied anywhere")
     t.add_argument("--italic-font", required=True, help="the italic face's TrueType font")
-    t.add_argument("--xlsx", default=XLSX, help="the scan list spreadsheet with the Card text sheet")
-    t.add_argument("--texts", help="JSON of corrected card texts by printed name, default card_texts.json beside the table")
     t.add_argument("--profile", help="profile whose template scale settings the fit uses, default rules")
-    t.add_argument("-o", "--out", help="truth folder, default truth/ beside the table")
+    t.add_argument("-o", "--out", help="truth folder, default truth/ beside the cards file")
     t.add_argument("--force", action="store_true", help="fit scans that already have truth again")
     t.add_argument("--workers", type=int, help="processes fitting scans, one scan each, default one per core")
     c = sub.add_parser("check", help="flag scans whose truth looks off against their card's other scan or against every scan")
-    c.add_argument("table")
-    c.add_argument("--truth", help="truth folder, default truth/ beside the table")
-    c.add_argument("--xlsx", default=XLSX, help="the scan list spreadsheet with the Card text sheet")
-    c.add_argument("--texts", help="JSON of corrected card texts by printed name, default card_texts.json beside the table")
-    s = sub.add_parser("score", help="score a session run on the table against its truth")
+    c.add_argument("cards", help="the scan folder's cards file")
+    c.add_argument("--truth", help="truth folder, default truth/ beside the cards file")
+    s = sub.add_parser("score", help="score a session against the truth of its cards file")
     s.add_argument("session")
-    s.add_argument("table")
-    s.add_argument("--truth", help="truth folder, default truth/ beside the table")
+    s.add_argument("cards", help="the session's cards file")
+    s.add_argument("--truth", help="truth folder, default truth/ beside the cards file")
     s.add_argument("-o", "--out", help="output folder, default bench/ in the session")
     s.add_argument("--workers", type=int, help="processes for stacking each card")
     for p in (t, c, s):
         add_args(p)
     a = ap.parse_args()
-    folder = Path(a.session) / "bench" if a.cmd == "score" else Path(a.table).parent / "truth"
+    folder = Path(a.session) / "bench" if a.cmd == "score" else Path(a.cards).parent / "truth"
     start(a, Path(getattr(a, "out", None) or getattr(a, "truth", None) or folder), f"bench_{a.cmd}")
     dict(truth=cmd_truth, check=cmd_check, score=cmd_score)[a.cmd](a)
 

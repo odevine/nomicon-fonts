@@ -6,8 +6,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import target
-from .align import align, card_targets, card_text
+from . import cards
+from .align import align, card_text
 from .scan import load_scan, rules_box_density
 from .styles import glyph_folder
 from .superres import fuse
@@ -206,10 +206,10 @@ def main():
     ap.add_argument("scans", nargs="+", help="one scan, or several shifted passes of the same card to fuse")
     ap.add_argument("-o", "--out", default="build")
     ap.add_argument("--box", help="rules box as x,y,w,h in scan pixels, default auto-detected")
-    ap.add_argument("--card-name", help="card name as on the Card text tab, enables alignment and glyph naming")
+    ap.add_argument("--cards", help="cards file holding the card's text, with --card enables alignment and glyph naming")
+    ap.add_argument("--card", help="id of the scanned card in the cards file")
     ap.add_argument("--card-id", help="id used in file names, default is the scan file stem")
     ap.add_argument("--style", default="regular", choices=["regular", "italic"])
-    ap.add_argument("--xlsx", default="notes/mtg_rules_scan_list.xlsx")
     a = ap.parse_args()
     card_id = a.card_id or Path(a.scans[0]).stem
     out = Path(a.out) / card_id
@@ -238,16 +238,14 @@ def main():
         g["suspect_merged"] = bool(g["w"] > 1.6 * median_w)
 
     manifest, rejected, crops, names, metrics = [], [], [], [], []
-    if a.card_name:
-        info["alignment_cost"] = round(float(align(glyphs, card_text(a.xlsx, a.card_name))), 2)
-        needed = set(card_targets(a.xlsx, a.card_name, target.get().face(a.style).full_name))
+    if a.card:
+        info["alignment_cost"] = round(float(align(glyphs, card_text(cards.card(a.cards, a.card)["text"]))), 2)
         units, rejected = units_from_alignment(glyphs, labels)
         counts = {}
         for u in units:
             k = glyph_folder(u["char"])
             counts[k] = counts.get(k, 0) + 1
             mask, entry = write_unit(out, a.style, card_id, counts[k], u, labels, density)
-            entry["needed"] = u["char"] in needed
             manifest.append(entry)
             crops.append(mask)
             names.append(u["char"])
@@ -258,10 +256,6 @@ def main():
             names.append("")
     (out / "manifest.json").write_text(json.dumps({"scan": info, "instances": manifest, "rejected": rejected}, indent=1))
     contact_sheet(crops, out / "contact_sheet.png", labels=names, metrics=metrics or None)
-    if a.card_name:
-        got = {e["unicode"] for e in manifest if e["needed"]}
-        want = {f"U+{ord(c):04X}" for c in needed}
-        print(f"needed {len(want)}: {''.join(sorted(needed))}, extracted {len(got & want)}, missing {sorted(want - got)}")
     print(f"deskew {info['deskew_deg']:.2f} deg, {len(lines)} lines, {len(glyphs)} boxes, {len(manifest)} units, {len(rejected)} set aside -> {out}")
 
 

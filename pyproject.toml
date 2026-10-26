@@ -10,7 +10,6 @@ dependencies = [
     "opencv-python-headless",
     "pillow",
     "pymupdf",
-    "openpyxl",
     "fonttools",
     "matplotlib",
     "potracer",

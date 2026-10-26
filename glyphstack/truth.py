@@ -1,6 +1,7 @@
 """Places every printed character of a card's rules text box from the card's known text, as ground truth for scoring
 
-The text comes as paragraphs from the scan list's Card text sheet, which gives no printed line breaks and no italics.
+The text comes as paragraphs from the cards file, in the scan list's Card text format, which gives no printed line
+breaks and no italics.
 Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and mana symbols such
 as {T} are kept as gaps that are not placed. The box is turned level by its text skew, since a card can sit a degree
 askew in a scan the pipeline does not turn. Each printed line is found from the rows of ink, words are given to lines
