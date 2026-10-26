@@ -5,8 +5,8 @@ Flavor text, reminder text in parentheses and an ability word before a dash are 
 as {T} are kept as gaps that are not placed. The box is turned level by its text skew, since a card can sit a degree
 askew in a scan the pipeline does not turn. Each printed line is found from the rows of ink, words are given to lines
 by matching the line's ink width, and the glyphs of each line are placed by a Viterbi pass that maximises the summed
-normalised cross correlation of each rendered glyph with a darkness image while letting each advance stretch by a few
-pixels. The print scale is then searched with the line breaks fixed. Every box is turned back into the card crop as a quad
+normalised cross correlation of each rendered glyph with a darkness image while letting each advance, kerned as the
+font kerns it, stretch by a few pixels. The print scale is then searched with the line breaks fixed. Every box is turned back into the card crop as a quad
 """
 import re
 
@@ -148,6 +148,19 @@ class Glyphs:
     def space(self):
         return self(" ", "regular")["adv"]
 
+    def kern(self, a, b):
+        """The font's kerning in px between two characters of one face, 0 across faces or for a mana symbol"""
+        (ca, fa), (cb, fb) = a, b
+        if fa != fb or fa == "symbol" or ca == " " or cb == " ":
+            return 0.0
+        key = ("kern", fa)
+        if key not in self.cache:
+            self.cache[key] = fnt.Kerning(self.fonts[fa])
+        cmap = self.fonts[fa].getBestCmap()
+        if ord(ca) not in cmap or ord(cb) not in cmap:
+            return 0.0
+        return self.cache[key].pair(ca, cb) * self.px_em / self.fonts[fa]["head"].unitsPerEm
+
 
 class Scores:
     """Each glyph's normalised cross correlation with the darkness image at every placement, computed once per glyph"""
@@ -182,8 +195,11 @@ def fit_run(run, scores, glyphs, b, xmin):
     """Viterbi placement of one run at baseline row b, returns (score, pen positions)"""
     W = scores.D.shape[1]
     NEG = np.float32(-1e9)
-    score, back, prev_adv = None, [], 0.0
+    score, back, prev_adv, prev = None, [], 0.0, None
     for ch, face in run:
+        if prev is not None:
+            prev_adv += glyphs.kern(prev, (ch, face))
+        prev = (ch, face)
         t = glyphs(ch, face)
         R = scores[(ch, face)]
         s = np.zeros(W, np.float32)

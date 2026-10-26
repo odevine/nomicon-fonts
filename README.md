@@ -92,7 +92,7 @@ The other sections hold the settings tuned to the type: the segmentation thresho
 .venv/bin/python -m glyphstack.bench score build/session scans/cropped/table.csv
 ```
 
-`truth` places every printed character of each scan by fitting the font to the card's text, line by line, and writes `<scan stem>.json` with an overlay `<scan stem>.png` to `truth/` beside the table. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and the text is turned level first, since a card can sit a degree askew. The truth comes from card scans, so it stays out of git with them. Check the overlays by eye before trusting a new card's truth.
+`truth` places every printed character of each scan by fitting the font to the card's text, line by line and kerned as the font kerns it, and writes `<scan stem>.json` with an overlay `<scan stem>.png` to `truth/` beside the table. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and the text is turned level first, since a card can sit a degree askew. The truth comes from card scans, so it stays out of git with them. Check the overlays by eye before trusting a new card's truth.
 
 `check` flags scans whose truth looks off: characters left unplaced or cut by the scan's edge, a low glyph correlation over the scan or on one line, or a disagreement in line count or print scale with the card's other scan. Corrections to the sheet's text go in `card_texts.json` beside the table, a map from printed name to text in the sheet's format, and both `truth` and `check` read it ahead of the sheet. `truth` takes `--workers` to fit scans in parallel.
 
