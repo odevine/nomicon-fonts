@@ -91,9 +91,9 @@ def segment(g):
 def join_marks(lab, comps, used, cfg):
     """Joins the parts of a punctuation mark into one component, in place, adding each joined part's id to used
 
-    Two quote halves of one size side by side become one double quote, the dot of a colon or semicolon joins the dot
-    or comma below it, and the dot of ! or ? joins a stem above it whose foot is at most dot_narrow_stem of its height
-    across. A mark part is no taller than mark_max_height and smaller than dot_max_area, and a dot also fits in
+    Two quote halves of one size side by side become one double quote, the two bars of = one over the other become
+    one sign, the dot of a colon or semicolon joins the dot or comma below it, and the dot of ! or ? joins a stem above
+    it whose foot is at most dot_narrow_stem of its height across. A mark part is no taller than mark_max_height and smaller than dot_max_area, and a dot also fits in
     dot_max_box. Every part is a component the profile keeps on its own, so specks of a halftone screen never join
     """
     box, tall, narrow = cfg["dot_max_box"], cfg["dot_stem_min_height"], cfg.get("dot_narrow_stem", 0.6)
@@ -123,6 +123,18 @@ def join_marks(lab, comps, used, cfg):
         b = nearest(a, fits, lambda o: o["x0"] - a["x1"])
         if b is not None:
             join(a, b)
+    if "equals_gap" in cfg:
+        lo, hi = cfg["equals_gap"]
+        bar = lambda c: w(c) >= 3 * h(c) and h(c) <= box
+        # the two bars of = are flat, of one width and in line, one just over the other
+        for a in sorted([c for c in live() if bar(c)], key=lambda c: c["y0"]):
+            if a["id"] in used:
+                continue
+            fits = lambda o: (bar(o) and lo <= o["y0"] - a["y1"] <= hi and abs(w(o) - w(a)) <= 0.1 * max(w(o), w(a))
+                              and min(o["x1"], a["x1"]) - max(o["x0"], a["x0"]) >= 0.9 * min(w(o), w(a)))
+            b = nearest(a, fits, lambda o: o["y0"] - a["y1"])
+            if b is not None:
+                join(a, b)
     lo, hi = cfg["colon_gap"]
     # a colon's or semicolon's dot over the dot or comma below it
     for a in sorted([c for c in live() if dot(c)], key=lambda c: c["y0"]):

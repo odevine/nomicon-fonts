@@ -118,3 +118,15 @@ def test_a_dot_under_a_wide_foot_stays_apart():
     g[148:166, 120:138] = 20
     _, comps = units.segment(g)
     assert ids(comps) == [1, 1]
+
+
+def test_the_bars_of_an_equals_sign_join_and_dashes_on_two_lines_do_not():
+    target.use(target.DEFAULT)
+    g = page()
+    # an = of two 80 px bars 24 px apart, and two dashes of that width a line apart
+    g[60:72, 40:120] = 20
+    g[96:108, 41:120] = 20
+    g[20:32, 200:280] = 20
+    g[170:182, 200:280] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [1, 1, 2]
