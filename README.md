@@ -81,7 +81,7 @@ A profile lists the typeface's faces. The first is the primary face: its glyph k
 
 `rules_texture.toml` reads the same face from text boxes printed over a gradient, a tint or faint art. Its `[texture]` section divides the card by its local paper level and blurs away a halftone screen where the screen is strong against the paper to ink range, leaving a plain box sharp, and `glyphstack/texture.py` documents each setting. Its `[templates]` section sets `scale_search = "count"`, which takes the print scale at which the most units are labelled, and `self_rounds = 1`, which labels the units again against templates learned from the card's own kept units. A profile without these settings reads as before.
 
-The other sections hold the settings tuned to the type: the segmentation threshold and size limits, the template character set, em size and print scale range, the matching thresholds, the characters scan geometry is estimated from, the stacking thresholds, the glyph the shared fit starts from with its starting values, and the glyph and card the site's step figure uses. `rules.toml` documents each one.
+The other sections hold the settings tuned to the type: the segmentation threshold and size limits with the rules that join an i dot or the parts of a punctuation mark into one unit, the template character set, em size and print scale range, the matching thresholds, the characters scan geometry is estimated from, the stacking thresholds, the glyph the shared fit starts from with its starting values, and the glyph and card the site's step figure uses. `rules.toml` documents each one.
 
 ## Scoring a session against the printed text
 

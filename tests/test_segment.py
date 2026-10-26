@@ -47,3 +47,74 @@ def test_a_small_speck_above_a_wide_letter_stays_out():
     g[84:94, 125:135] = 20
     _, comps = units.segment(g)
     assert ids(comps) == [1]
+
+
+def boxes(comps):
+    return sorted((c["y0"], c["x0"], len(c["ids"])) for c in comps)
+
+
+def test_quote_halves_side_by_side_join_into_one_mark():
+    target.use(target.DEFAULT)
+    g = page()
+    # two 15 px wide, 36 px tall halves 7 px apart, as a double quote prints
+    g[60:96, 100:115] = 20
+    g[60:96, 122:137] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [2]
+    assert (comps[0]["x0"], comps[0]["x1"]) == (100, 137)
+
+
+def test_a_colon_and_a_semicolon_join_their_dots():
+    target.use(target.DEFAULT)
+    g = page()
+    # a colon's two 18 px dots 26 px apart, and a semicolon's dot over a comma
+    g[100:118, 100:118] = 20
+    g[144:162, 100:118] = 20
+    g[100:118, 200:218] = 20
+    g[144:180, 202:216] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [2, 2]
+
+
+def test_the_dot_of_an_exclamation_mark_joins_its_stem():
+    target.use(target.DEFAULT)
+    g = page()
+    g[60:135, 100:116] = 20
+    g[145:163, 99:117] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [2] and comps[0]["y1"] == 163
+
+
+def test_marks_beside_letters_and_an_ellipsis_stay_apart():
+    target.use(target.DEFAULT)
+    g = page()
+    # a period on the baseline beside a stem, an ellipsis, and a comma beside a quote half of another size
+    g[100:160, 40:52] = 20
+    g[142:160, 56:74] = 20
+    for x in (120, 150, 180):
+        g[142:160, x : x + 18] = 20
+    g[60:96, 260:275] = 20
+    g[140:160, 280:294] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [1] * len(comps)
+
+
+def test_two_specks_of_texture_one_over_another_make_no_mark():
+    target.use(target.DEFAULT)
+    g = page()
+    # dots under the profile's min_area, as specks of a halftone screen are
+    g[100:111, 100:111] = 20
+    g[135:146, 100:111] = 20
+    _, comps = units.segment(g)
+    assert comps == []
+
+
+def test_a_dot_under_a_wide_foot_stays_apart():
+    target.use(target.DEFAULT)
+    g = page()
+    # a blob of screen the size of a dot just under a letter as wide at its foot as it is tall
+    g[80:140, 100:160] = 20
+    g[90:130, 110:150] = 220
+    g[148:166, 120:138] = 20
+    _, comps = units.segment(g)
+    assert ids(comps) == [1, 1]

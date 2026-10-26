@@ -83,7 +83,70 @@ def segment(g):
             s["y0"] = min(s["y0"], c["y0"])
             s["area"] += c["area"]
             used.add(c["id"])
+    if "mark_max_height" in cfg:
+        join_marks(lab, comps, used, cfg)
     return lab, [c for c in comps if c["id"] not in used]
+
+
+def join_marks(lab, comps, used, cfg):
+    """Joins the parts of a punctuation mark into one component, in place, adding each joined part's id to used
+
+    Two quote halves of one size side by side become one double quote, the dot of a colon or semicolon joins the dot
+    or comma below it, and the dot of ! or ? joins a stem above it whose foot is at most dot_narrow_stem of its height
+    across. A mark part is no taller than mark_max_height and smaller than dot_max_area, and a dot also fits in
+    dot_max_box. Every part is a component the profile keeps on its own, so specks of a halftone screen never join
+    """
+    box, tall, narrow = cfg["dot_max_box"], cfg["dot_stem_min_height"], cfg.get("dot_narrow_stem", 0.6)
+    h = lambda c: c["y1"] - c["y0"]
+    w = lambda c: c["x1"] - c["x0"]
+    live = lambda: [c for c in comps if c["id"] not in used]
+    mark = lambda c: h(c) <= cfg["mark_max_height"] and c["area"] < cfg["dot_max_area"]
+    dot = lambda c: mark(c) and h(c) <= box and w(c) <= box
+
+    def join(s, c):
+        s["ids"] = s["ids"] + c["ids"]
+        s["y0"], s["y1"], s["x0"], s["x1"] = min(s["y0"], c["y0"]), max(s["y1"], c["y1"]), min(s["x0"], c["x0"]), max(s["x1"], c["x1"])
+        s["area"] += c["area"]
+        used.add(c["id"])
+
+    def nearest(a, fits, gap):
+        best = [o for o in live() if o is not a and fits(o)]
+        return min(best, key=gap) if best else None
+
+    # a quote half pairs with the nearest half to its right of the same size and height
+    for a in sorted([c for c in live() if mark(c) and h(c) > box], key=lambda c: c["x0"]):
+        if a["id"] in used:
+            continue
+        fits = lambda o: (mark(o) and h(o) > box and o["x0"] >= a["x1"] and o["x0"] - a["x1"] <= cfg["quote_max_gap"]
+                          and abs(h(o) - h(a)) <= 0.25 * max(h(o), h(a)) and max(o["area"], a["area"]) <= 1.5 * min(o["area"], a["area"])
+                          and min(o["y1"], a["y1"]) - max(o["y0"], a["y0"]) >= 0.7 * min(h(o), h(a)))
+        b = nearest(a, fits, lambda o: o["x0"] - a["x1"])
+        if b is not None:
+            join(a, b)
+    lo, hi = cfg["colon_gap"]
+    # a colon's or semicolon's dot over the dot or comma below it
+    for a in sorted([c for c in live() if dot(c)], key=lambda c: c["y0"]):
+        if a["id"] in used:
+            continue
+        fits = lambda o: mark(o) and lo <= o["y0"] - a["y1"] <= hi and min(o["x1"], a["x1"] + 4) - max(o["x0"], a["x0"] - 4) > 0
+        b = nearest(a, fits, lambda o: o["y0"] - a["y1"])
+        if b is not None:
+            join(a, b)
+    lo, hi = cfg["foot_gap"]
+    # the dot of ! or ? under the foot of its stem
+    for a in [c for c in live() if dot(c)]:
+        if a["id"] in used:
+            continue
+
+        def fits(o):
+            if h(o) <= tall or not lo <= a["y0"] - o["y1"] <= hi:
+                return False
+            cols = np.nonzero(np.isin(lab[o["y1"] - max(h(o) // 5, 3) : o["y1"], o["x0"] : o["x1"]], o["ids"]).any(0))[0] + o["x0"]
+            return len(cols) and (cols.max() + 1 - cols.min()) / h(o) <= narrow and min(a["x1"], cols.max() + 5) - max(a["x0"], cols.min() - 4) > 0
+
+        s = nearest(a, fits, lambda o: a["y0"] - o["y1"])
+        if s is not None:
+            join(s, a)
 
 
 def in_regions(comps, shape):

@@ -56,6 +56,13 @@ dot_narrow_stem = 0.6
 dot_max_box = 24
 dot_stem_min_height = 30
 dot_max_gap = 25
+# the parts of a punctuation mark joined into one unit, each no taller than mark_max_height: two quote halves at most
+# quote_max_gap apart side by side, a colon's or semicolon's dot colon_gap above its dot or comma, and the dot of ! or ?
+# foot_gap below the foot of its stem
+mark_max_height = 50
+quote_max_gap = 12
+colon_gap = [14, 40]
+foot_gap = [2, 16]
 
 [templates]
 charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ"
