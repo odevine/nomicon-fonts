@@ -10,7 +10,7 @@ from scipy.spatial import cKDTree
 from scipy.special import ndtr
 
 from . import font as fnt
-from . import styles, target
+from . import build, styles, target
 from .contours import UM_PER_PX, contours_at, edge_rms_um, sym_dev
 from .log import pool
 
@@ -29,10 +29,14 @@ def bounds():
 class FontGlyph:
     """A designed outline as dense polylines in font units with its advance width"""
 
-    def __init__(self, font, ch, spacing=1.0):
-        contours, _ = fnt.glyph_contours(font, ch)
+    def __init__(self, font, ch, spacing=1.0, name=None):
+        stem = styles.STEMS.get(ch) if name is None and ord(ch) not in font.getBestCmap() else None
+        contours, name = fnt.glyph_contours(font, stem or ch, name)
+        if stem:
+            # a dotless letter the font does not draw is its dotted letter less the topmost contour, the dot
+            contours = [c for c in contours if c is not max(contours, key=lambda c: c[:, 1].min())]
         self.contours = fnt.densify(contours, spacing)
-        self.adv = font["hmtx"][font.getBestCmap()[ord(ch)]][0]
+        self.adv = font["hmtx"][name][0]
 
     def to_img(self, prm):
         s, ar, th, tx, ty = prm[:5]
@@ -247,8 +251,9 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
     another face is placed with the shared transform scaled to that font's units per em. Each face's print look is
     the median of its traced glyphs'. With the profile's fit prior_weight set, a glyph with fewer than min_n
     instances is traced from its stack blended with its outline drawn with that look, and records that it leans on
-    the prior and how far the blend moved from its own stack. Each of `chars` a face's font draws and no stack
-    traces is built from its outline drawn with the look, and records that it was built so
+    the prior and how far the blend moved from its own stack. Each of `chars` with no stack is built as the face's
+    measuring stick makes it, a composite from its parts' entries at the font's component offsets and any other
+    from its outline drawn with the look, and records how it was built
     """
     first = styles.primary()
     if not isinstance(fonts, dict):
@@ -271,9 +276,21 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
         if not contour:
             continue
         placed[key] = (g, fit(g, np.vstack(contour), init_translation(g, np.vstack(contour), per_style[st]), ["tx", "ty"]))
-    todo = [(st, styles.key(st, ch)) for st, font in fonts.items() for ch in chars if styles.key(st, ch) not in placed and styles.drawn_by(font, ch)]
-    todo = [(k, FontGlyph(fonts[st], styles.char_of(k))) for st, k in todo]
-    todo = [(k, g) for k, g in todo if g.contours]
+    # of the characters with no stack, the composites are built from their parts, and the parts and the rest from their outlines
+    composites, whole = [], {}
+    for st, font in fonts.items():
+        for ch in chars:
+            if styles.key(st, ch) in placed:
+                continue
+            ps = build.parts(font, ch)
+            if ps:
+                composites.append((st, ch, ps))
+                for c, name, _ in ps:
+                    whole[(st, c, None if c else name)] = None
+            elif styles.drawn_by(font, ch):
+                whole[(st, ch, None)] = None
+    todo = {t: FontGlyph(fonts[t[0]], t[1] or "", name=t[2]) for t in whole if not (t[1] and styles.key(t[0], t[1]) in placed)}
+    todo = {t: g for t, g in todo.items() if g.contours}
     with pool(workers or os.cpu_count() or 1) as ex:
         well = [k for k in placed if stacks[k]["n"] >= min_n]
         futs = {k: ex.submit(print_look, *placed[k], stacks[k]["mean"]) for k in well}
@@ -283,7 +300,7 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
         face = {st: face_look(lk) for st, lk in looks.items()}
         for st in fonts:
             face.setdefault(st, face.get(first))
-        built = {k: ex.submit(traced_outline, g, per_style[styles.style_of(k)], face[styles.style_of(k)]) for k, g in todo if face[styles.style_of(k)]}
+        built = {t: ex.submit(traced_outline, g, per_style[t[0]], face[t[0]]) for t, g in todo.items() if face[t[0]]}
         for key, (g, p) in placed.items():
             s = stacks[key]
             mean, extra = s["mean"], {}
@@ -294,8 +311,15 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
             rms, iou = edge_stats(g, p, mean, contour)
             path, nodes, nc = trace(mean, p)
             out[key] = dict(trace=path, adv=g.adv, n=s["n"], ncards=len(s["cards"]), rms=rms, iou=iou, nodes=nodes, nc=nc, p=p.tolist(), **extra)
-        for k, g in todo:
-            if k in built:
-                path, nodes, nc, p = built[k].result()
-                out[k] = dict(trace=path, adv=g.adv, n=stacks[k]["n"] if k in stacks else 0, nodes=nodes, nc=nc, p=p, built="outline", look=face[styles.style_of(k)])
+        named = {}
+        for (st, c, name), f in built.items():
+            path, nodes, nc, p = f.result()
+            k = styles.key(st, c) if c else None
+            named[(st, c, name)] = e = dict(trace=path, adv=todo[(st, c, name)].adv, n=stacks[k]["n"] if k in stacks else 0, nodes=nodes, nc=nc, p=p, built="outline", look=face[st])
+            if k:
+                out[k] = e
+    for st, ch, ps in composites:
+        pieces = [out.get(styles.key(st, c)) if c else named.get((st, None, name)) for c, name, _ in ps]
+        if all(pieces):
+            out[styles.key(st, ch)] = build.compose(fonts[st], ch, ps, pieces)
     return shared, out

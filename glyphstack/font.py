@@ -45,9 +45,9 @@ def load_font(path):
     return TTFont(path)
 
 
-def glyph_contours(font, ch):
-    """Returns the flattened contours of a character and its glyph name"""
-    name = font.getBestCmap()[ord(ch)]
+def glyph_contours(font, ch, name=None):
+    """Returns the flattened contours of a character, or of the glyph so named, and its glyph name"""
+    name = name or font.getBestCmap()[ord(ch)]
     pen = FlattenPen(font.getGlyphSet())
     font.getGlyphSet()[name].draw(pen)
     return pen.contours, name

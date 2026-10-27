@@ -17,15 +17,16 @@ REGULAR, ITALIC = "regular", "italic"
 # the font editor's way, acute.case beside acute
 CASE = {"`": "\ue000", "´": "\ue001", "ˆ": "\ue002", "˜": "\ue003", "¨": "\ue004", "˚": "\ue005", "ˇ": "\ue006", "˙": "\ue007"}
 NAMES = {v: UV2AGL[ord(k)] + ".case" for k, v in CASE.items()} | {"ȷ": "dotlessj"}
+# a dotless letter a measuring stick may not draw, measured against its dotted letter less the dot
+STEMS = {"ȷ": "j"}
 
 # Google Fonts' GF Latin Core, which the site's character sheet lays out too
 LATIN_CORE = Path(__file__).resolve().parents[1] / "site" / "src" / "lib" / "latin-core.json"
 
 
 def latin_core():
-    """The characters of GF Latin Core that have an outline of their own, leaving out the spaces and combining accents"""
-    cps = json.loads(LATIN_CORE.read_text())["codepoints"]
-    return [chr(c) for c in cps if unicodedata.category(chr(c)) not in ("Zs", "Mn")]
+    """The characters of GF Latin Core that have an outline, leaving out the spaces"""
+    return [chr(c) for c in json.loads(LATIN_CORE.read_text())["codepoints"] if unicodedata.category(chr(c)) != "Zs"]
 
 
 def faces():
@@ -80,8 +81,9 @@ def pair_key(a, b):
 
 
 def drawn_by(font, ch):
-    """Whether a measuring stick font draws a character, never a capital accent form, whose Private Use key may be a different glyph there"""
-    return ch not in NAMES and ord(ch) in font.getBestCmap()
+    """Whether a measuring stick font draws a character, or its dotted letter for a dotless one, never a capital accent form, whose Private Use key may be a different glyph there"""
+    cmap = font.getBestCmap()
+    return ch not in CASE.values() and (ord(ch) in cmap or ord(STEMS.get(ch, ch)) in cmap)
 
 
 def glyph_folder(ch):
