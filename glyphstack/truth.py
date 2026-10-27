@@ -8,8 +8,8 @@ askew in a scan the pipeline does not turn. Each printed line is found from the 
 by matching the line's ink width, and the glyphs of each line are placed by a Viterbi pass that maximises the summed
 normalised cross correlation of each rendered glyph with a darkness image while letting each advance, kerned as the
 font kerns it, stretch by a few pixels. The print scale is then searched with the line breaks fixed, and at that scale a line that
-still fits poorly is fitted again over a wider range of baselines with each glyph free to take an exponent form,
-smaller and raised, as a formula's exponents are printed. Every box is turned back into the card crop as a quad
+still fits poorly is fitted again over a wider range of baselines with each glyph free to sit further off it and to
+take an exponent form, smaller and raised, as a formula's minus signs and exponents are printed. Every box is turned back into the card crop as a quad
 """
 import re
 
@@ -45,6 +45,9 @@ RAISE_EM = 0.17
 # and with each glyph free to take its exponent form
 WIDE_NCC = 0.5
 WIDE_EM = 0.3
+# and each glyph of that line may sit this share of the em off its baseline, as a formula's minus is printed below the
+# measuring stick's
+WIDE_JITTER_EM = 0.25
 
 
 def paragraphs(text):
@@ -206,7 +209,7 @@ def runs(chars):
     return out, gaps
 
 
-def fit_run(run, scores, glyphs, b, xmin, exponents=False):
+def fit_run(run, scores, glyphs, b, xmin, exponents=False, jitter=JITTER_PX):
     """Viterbi placement of one run at baseline row b, with exponents each glyph in its own form or its exponent form, returns (score, pen positions, forms)"""
     W = scores.D.shape[1]
     NEG = np.float32(-1e9)
@@ -220,7 +223,7 @@ def fit_run(run, scores, glyphs, b, xmin, exponents=False):
             s = np.zeros(W, np.float32)
             if R is not None:
                 ox, oy = t["off"]
-                rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]]
+                rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]]
                 s = np.full(W, NEG, np.float32)
                 if rows:
                     best = R[rows].max(0)
@@ -270,8 +273,8 @@ def fit_run(run, scores, glyphs, b, xmin, exponents=False):
     return total, pos[::-1], [forms[k] for k in fs[::-1]]
 
 
-def fit_line(chars, scores, glyphs, b0, search=8, exponents=False):
-    """Places a line's characters with its baseline searched within `search` rows of b0, with exponents letting each take its exponent form
+def fit_line(chars, scores, glyphs, b0, search=8, exponents=False, jitter=JITTER_PX):
+    """Places a line's characters with its baseline searched within `search` rows of b0, each within `jitter` rows of it, with exponents letting each take its exponent form
 
     Returns (score, baseline, [(character, face, pen x, exponent form)], right edge of the line's last ink or symbol)
     """
@@ -284,7 +287,7 @@ def fit_line(chars, scores, glyphs, b0, search=8, exponents=False):
         for k, r in enumerate(rs):
             if k in gaps and placed:
                 xmin = int(right + glyphs("{}", "symbol")["adv"])
-            s, pos, small = fit_run(r, scores, glyphs, b, xmin, exponents)
+            s, pos, small = fit_run(r, scores, glyphs, b, xmin, exponents, jitter)
             total += s
             placed += [(ch, face, p, sm) for (ch, face), p, sm in zip(r, pos, small)]
             right = pos[-1] + glyphs(*r[-1], small[-1])["adv"]
@@ -296,7 +299,7 @@ def fit_line(chars, scores, glyphs, b0, search=8, exponents=False):
     return best
 
 
-def placement_ncc(scores, glyphs, ch, face, p, b, small=False):
+def placement_ncc(scores, glyphs, ch, face, p, b, small=False, jitter=JITTER_PX):
     """The correlation of one placed glyph at pen x p on baseline b, the best within the baseline jitter, None without an image"""
     t = glyphs(ch, face, small)
     R = scores[(ch, face, small)]
@@ -304,7 +307,7 @@ def placement_ncc(scores, glyphs, ch, face, p, b, small=False):
         return None
     ox, oy = t["off"]
     x = min(max(p + ox, 0), R.shape[1] - 1)
-    rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]]
+    rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]]
     return float(R[rows, x].max()) if rows else None
 
 
@@ -499,19 +502,20 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
         for li, line in enumerate(lines):
             score, b, pl, _ = fit_line(line["chars"], sc, gl, line["base"])
             total += score
-            placed.append((li, b, pl))
+            placed.append((li, b, pl, JITTER_PX))
         if best is None or total > best[0]:
             best = (total, float(s), placed, gl, sc)
     total, s, placed, gl, sc = best
-    mean_ncc = lambda b, pl: np.mean([v for v in (placement_ncc(sc, gl, ch, face, p, b, sm) for ch, face, p, sm in pl) if v is not None] or [1.0])
-    for k, (li, b, pl) in enumerate(placed):
-        before = mean_ncc(b, pl)
+    mean_ncc = lambda b, pl, j: np.mean([v for v in (placement_ncc(sc, gl, ch, face, p, b, sm, j) for ch, face, p, sm in pl) if v is not None] or [1.0])
+    wide = int(WIDE_JITTER_EM * gl.px_em)
+    for k, (li, b, pl, j) in enumerate(placed):
+        before = mean_ncc(b, pl, j)
         if before < WIDE_NCC:
-            _, wb, wpl, _ = fit_line(lines[li]["chars"], sc, gl, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True)
-            if mean_ncc(wb, wpl) > before:
-                placed[k] = (li, wb, wpl)
+            _, wb, wpl, _ = fit_line(lines[li]["chars"], sc, gl, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True, jitter=wide)
+            if mean_ncc(wb, wpl, wide) > before:
+                placed[k] = (li, wb, wpl, wide)
     chars = []
-    for li, b, pl in placed:
+    for li, b, pl, jitter in placed:
         for ch, face, p, small in pl:
             t = gl(ch, face, small)
             if t["img"] is None:
@@ -519,7 +523,7 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
             R = sc[(ch, face, small)]
             ox, oy = t["off"]
             x = min(max(p + ox, 0), R.shape[1] - 1)
-            rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]] or [min(max(b + oy, 0), R.shape[0] - 1)]
+            rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]] or [min(max(b + oy, 0), R.shape[0] - 1)]
             ry = rows[int(np.argmax(R[rows, x]))]
             ys, xs = np.nonzero(t["img"] > 0.5)
             q = np.array([[x + xs.min(), ry + ys.min()], [x + xs.max() + 1, ry + ys.min()], [x + xs.max() + 1, ry + ys.max() + 1], [x + xs.min(), ry + ys.max() + 1]], float)
