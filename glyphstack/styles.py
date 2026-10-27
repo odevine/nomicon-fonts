@@ -3,6 +3,10 @@
 A glyph's key is its face's prefix followed by its character, so the primary face's keys are the bare character.
 The faces come from the target profile in use
 """
+import json
+import unicodedata
+from pathlib import Path
+
 from fontTools.agl import UV2AGL
 
 from . import target
@@ -13,6 +17,15 @@ REGULAR, ITALIC = "regular", "italic"
 # the font editor's way, acute.case beside acute
 CASE = {"`": "\ue000", "´": "\ue001", "ˆ": "\ue002", "˜": "\ue003", "¨": "\ue004", "˚": "\ue005", "ˇ": "\ue006", "˙": "\ue007"}
 NAMES = {v: UV2AGL[ord(k)] + ".case" for k, v in CASE.items()} | {"ȷ": "dotlessj"}
+
+# Google Fonts' GF Latin Core, which the site's character sheet lays out too
+LATIN_CORE = Path(__file__).resolve().parents[1] / "site" / "src" / "lib" / "latin-core.json"
+
+
+def latin_core():
+    """The characters of GF Latin Core that have an outline of their own, leaving out the spaces and combining accents"""
+    cps = json.loads(LATIN_CORE.read_text())["codepoints"]
+    return [chr(c) for c in cps if unicodedata.category(chr(c)) not in ("Zs", "Mn")]
 
 
 def faces():

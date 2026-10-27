@@ -15,7 +15,7 @@ from collections import defaultdict
 from concurrent.futures import as_completed
 from pathlib import Path
 
-from . import calibration, cards, font, fontfit, stack, target, template, units
+from . import calibration, cards, font, fontfit, stack, styles, target, template, units
 from .log import Progress, add_args, announce, log, pool, start, timed
 
 CACHE_VERSION = 2
@@ -137,9 +137,10 @@ def main():
     result["profile"] = dict(name=prof.name, path=prof.path, sha256=prof.sha256)
     stack.save(result, out)
     with timed("tracing"):
-        shared, traces = fontfit.fit_all(fonts, result["stacks"], a.min_instances)
+        shared, traces = fontfit.fit_all(fonts, result["stacks"], a.min_instances, styles.latin_core(), a.workers)
     (out / "traces.json").write_text(json.dumps(traces, indent=1))
-    announce("wrote %s with %d glyph traces", out, len(traces))
+    built = sum(1 for t in traces.values() if t.get("built"))
+    announce("wrote %s with %d glyph traces and %d glyphs built from the measuring stick", out, len(traces) - built, built)
 
 
 if __name__ == "__main__":

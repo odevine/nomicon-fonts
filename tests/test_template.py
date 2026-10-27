@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 
 from glyphstack import styles, target, template
@@ -84,9 +86,27 @@ def test_the_prior_renders_the_outline_on_its_spread_contour_and_blends_as_insta
     g.contours = square()
     # scale 0.2 puts the 200 unit square at 40 grid px, 30 px in, with a spread of 2 px
     p = np.array([0.2, 1.0, 0.0, 30.0, 70.0, 2.0])
-    prior = fontfit.render(g, p, (100, 100), 1.5)
+    look = dict(d=2.0, w=1.5, r=0.0)
+    prior = fontfit.render(g, p, (100, 100), look)
     xs = np.vstack(contours_at(prior, 0.5))[:, 0]
     assert abs(xs.min() - 28) < 0.3 and abs(xs.max() - 72) < 0.3
     stack = np.zeros((100, 100), np.float32)
-    blend = fontfit.with_prior(g, p, stack, 2, 1.5, 2)
+    blend = fontfit.with_prior(g, p, stack, 2, look, 2)
     assert np.allclose(blend, prior / 2)
+
+
+def test_the_print_look_finds_the_spread_edge_and_rounding_a_stack_was_drawn_with():
+    from glyphstack import fontfit
+
+    g = object.__new__(fontfit.FontGlyph)
+    g.contours = square()
+    p = np.array([0.4, 1.0, 0.0, 60.0, 140.0, 2.0])
+    stack = fontfit.render(g, p, (200, 200), dict(d=3.0, w=2.0, r=6.0))
+    look = fontfit.print_look(g, p, stack)
+    assert look["r"] == 6.0 and abs(look["d"] - 3.0) < 0.1 and abs(look["w"] - 2.0) < 0.1
+    # drawn on a grid of its own, the outline traces back to the same square in font units
+    mean, q = fontfit.from_outline(g, p, look)
+    path, nodes, _ = fontfit.trace(mean, q)
+    xs = [float(v) for v in re.findall(r"(-?[\d.]+),", path)]
+    # the spread of 3 grid px is 7.5 font units at scale 0.4
+    assert abs(min(xs) + 7.5) < 1 and abs(max(xs) - 207.5) < 1
