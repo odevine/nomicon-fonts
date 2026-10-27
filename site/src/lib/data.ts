@@ -27,6 +27,8 @@ export interface GlyphDoc extends Omit<GlyphRow, 'cards' | 'source'> {
   adv: number; cards: string[]; trace: string; instances_total: number; instances_exported: number;
   trace_by_n: { n: number; cards: number; trace: string; nodes: number; edge_rms_um: number | null }[];
   mean: Record<string, string>; cutaways: { path: string; radius: number; deviation_um: number }[];
+  /** set when the glyph has too few instances to trace alone and its stack was blended with its outline */
+  prior?: boolean; prior_weight?: number; moved_um?: number;
 }
 export interface Sweep { rows: { n: number; rms_vs_ref_um: number; p10: number; p90: number; noise_model_um: number }[]; recommended_n: number; instances_swept?: number }
 interface NoisePair { hist: Hist; n_pairs: number; pair_rms_um: number; single_scan_um: number; pair_mean_um: number; tied: boolean; note: string }

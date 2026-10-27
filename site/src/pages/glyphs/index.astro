@@ -48,7 +48,7 @@ const Group = faces.length > 1 ? 'h3' : 'h2';
   <h1>Glyphs</h1>
   <p class="lede">The sheet follows the Latin Core character set from Google Fonts. Each scanned glyph links to its own page, and an empty box is a character still to come.</p>
   <p class="legend-row"><span class="sw-ink">scanned</span><span class="sw-low">low confidence</span><span class="sw-empty">not scanned yet</span></p>
-  <p class="src">Low confidence means fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for. The {sheet.length} cells leave out the {left} spaces and combining accents of the set.</p>
+  <p class="src">Low confidence means fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for. A glyph with fewer than {m.min_instances} is built with the prior, its stack blended with the measuring stick's outline. The {sheet.length} cells leave out the {left} spaces and combining accents of the set.</p>
   {faces.map(([face, title]) => (
     <section class="face wide" aria-labelledby={`face-${face}`}>
       {faces.length > 1 ? <h2 id={`face-${face}`}>{title}</h2> : <h2 class="vh" id={`face-${face}`}>{title}</h2>}
@@ -72,6 +72,7 @@ const Group = faces.length > 1 ? 'h3' : 'h2';
                     </svg>
                     <small class="u">{hex(ch)}</small>
                     {row.low_confidence && <span class="vh">, low confidence</span>}
+                    {row.source === 'prior' && <span class="vh">, built with the prior</span>}
                   </a>
                 </li>
               );

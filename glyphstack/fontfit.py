@@ -4,10 +4,11 @@ import numpy as np
 import potrace
 from scipy.optimize import least_squares
 from scipy.spatial import cKDTree
+from scipy.special import ndtr
 
 from . import font as fnt
 from . import styles, target
-from .contours import UM_PER_PX, contours_at, sym_dev
+from .contours import UM_PER_PX, contours_at, edge_rms_um, sym_dev
 
 NAMES = ["s", "ar", "th", "tx", "ty", "d"]
 FIXED_BOUNDS = dict(ar=(0.9, 1.1), th=(-0.05, 0.05), tx=(-1e4, 1e4), ty=(-1e4, 1e4), d=(-1, 8))
@@ -133,6 +134,23 @@ def edge_stats(g, p, mean, contour, sd=None):
     return rms, float((si & fi).sum() / (si | fi).sum())
 
 
+def edge_width(g, p, mean, band=8):
+    """The width in grid px of the Gaussian edge that renders the placed outline closest to a stack's coverage near its edge"""
+    sd = placed_distance(g, p, mean.shape)
+    near = np.abs(sd - p[5]) < band
+    return float(min(np.arange(0.6, 8.01, 0.2), key=lambda w: float(((ndtr((p[5] - sd[near]) / w) - mean[near]) ** 2).mean())))
+
+
+def render(g, p, shape, width):
+    """The placed outline as coverage on a stack's grid, a Gaussian edge of the given width on its spread contour"""
+    return ndtr((p[5] - placed_distance(g, p, shape)) / width).astype(np.float32)
+
+
+def with_prior(g, p, mean, n, width, weight):
+    """A stack of n instances blended with the measuring stick's outline rendered as the print would show it, which counts as weight instances"""
+    return ((n * mean + weight * render(g, p, mean.shape, width)) / (n + weight)).astype(np.float32)
+
+
 def to_font_units(q, p):
     """Maps points in the stack's grid coordinates to font units, y down, origin at the glyph origin"""
     s, ar, th, tx, ty = p[:5]
@@ -179,7 +197,10 @@ def fit_all(fonts, stacks, min_n=12):
     """Shared transform from the profile's seed glyph, then a translation-only placement, trace and statistics for each glyph with min_n instances
 
     fonts is {face: font}, a bare font counts as the primary face. Glyph keys come from `styles`, and a glyph of
-    another face is placed with the shared transform scaled to that font's units per em
+    another face is placed with the shared transform scaled to that font's units per em. With the profile's fit
+    prior_weight set, a glyph with fewer than min_n instances is traced from its stack blended with its outline,
+    rendered with the shared transform and the seed glyph's edge width, and its trace records that it leans on the
+    prior, the instances it rests on and how far the blend moved from its own stack
     """
     first = styles.primary()
     if not isinstance(fonts, dict):
@@ -190,18 +211,26 @@ def fit_all(fonts, stacks, min_n=12):
         raise SystemExit(f"the seed glyph {seed!r} has no stack, so the shared transform cannot be fitted")
     shared = shared_transform(reg, stacks[seed]["mean"])
     per_style = {st: shared if st == first else face_transform(shared, reg, f) for st, f in fonts.items()}
+    weight = target.get()["fit"].get("prior_weight")
+    width = edge_width(FontGlyph(reg, seed), shared, stacks[seed]["mean"]) if weight else None
     out = {}
     for key, s in stacks.items():
         st, ch = styles.style_of(key), styles.char_of(key)
         font = fonts.get(st)
-        if font is None or s["n"] < min_n or ord(ch) not in font.getBestCmap():
+        prior = s["n"] < min_n
+        if font is None or (prior and not weight) or not styles.drawn_by(font, ch):
             continue
         g = FontGlyph(font, ch)
         contour = contours_at(s["mean"], 0.5)
         if not contour:
             continue
         p = fit(g, np.vstack(contour), init_translation(g, np.vstack(contour), per_style[st]), ["tx", "ty"])
-        rms, iou = edge_stats(g, p, s["mean"], contour)
-        path, nodes, nc = trace(s["mean"], p)
-        out[key] = dict(trace=path, adv=g.adv, n=s["n"], ncards=len(s["cards"]), rms=rms, iou=iou, nodes=nodes, nc=nc, p=p.tolist())
+        mean, extra = s["mean"], {}
+        if prior:
+            mean = with_prior(g, p, s["mean"], s["n"], width, weight)
+            extra = dict(prior=True, prior_weight=weight, moved_um=edge_rms_um(mean, s["mean"]))
+            contour = contours_at(mean, 0.5)
+        rms, iou = edge_stats(g, p, mean, contour)
+        path, nodes, nc = trace(mean, p)
+        out[key] = dict(trace=path, adv=g.adv, n=s["n"], ncards=len(s["cards"]), rms=rms, iou=iou, nodes=nodes, nc=nc, p=p.tolist(), **extra)
     return shared, out

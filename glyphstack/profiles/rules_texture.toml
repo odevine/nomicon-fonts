@@ -117,6 +117,8 @@ count = 13
 [stack]
 # a glyph is stacked once it has this many units and half as many printed copies
 min_units = 16
+# glyphs with fewer units, down to this many, are stacked too and traced with the prior of the fit section
+few_units = 1
 loo_min_iou = 0.85
 
 [fit]
@@ -125,6 +127,9 @@ seed_glyph = "e"
 # starting scale, aspect, rotation, x, y and ink spread
 seed = [0.592, 1.0, 0.0, 0.0, 0.0, 1.5]
 scale_bounds = [0.4, 0.8]
+# a glyph with fewer instances than the session traces from is traced from its stack blended with its outline,
+# rendered with the shared transform and the seed glyph's edge width, which counts as this many instances
+prior_weight = 2
 
 [site]
 # the glyph and card the Scan to Glyph sequence is drawn from

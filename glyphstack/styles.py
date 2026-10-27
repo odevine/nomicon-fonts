@@ -66,6 +66,11 @@ def pair_key(a, b):
     return face_of(a).prefix + char_of(a) + char_of(b)
 
 
+def drawn_by(font, ch):
+    """Whether a measuring stick font draws a character, never a capital accent form, whose Private Use key may be a different glyph there"""
+    return ch not in NAMES and ord(ch) in font.getBestCmap()
+
+
 def glyph_folder(ch):
     """Standard glyph name for a character, with a suffix on capitals so case-insensitive filesystems keep them apart"""
     name = NAMES.get(ch) or UV2AGL.get(ord(ch), f"uni{ord(ch):04X}")

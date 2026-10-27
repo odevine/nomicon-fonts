@@ -170,7 +170,7 @@ def export_glyph(key, stack, rows, fit, g, p, ref, ncut, draws, tol=SIMPLIFY_FU,
         instances_total=n, instances_exported=len(pick), contours=fit["nc"], edge_rms_um=round(fit["rms"], 3), iou=round(fit["iou"], 4), recommended_n=sw["recommended_n"],
         mean={f"{lv:.1f}": path_d(contours_at(mean, lv), p, tol) for lv in LEVELS}, spread=spread_grid(stack["sd"], p), instances=instances,
         cutaways=cutaways(g, p, mean_c, ncut), trace_by_n=trace_series(stack, inst_rows, fit, g, p, sd),
-    ), sw
+    ) | ({k: fit[k] for k in ("prior", "prior_weight", "moved_um")} if fit.get("prior") else {}), sw
 
 
 def session_fits(session, fonts, stacks, min_instances):
@@ -182,7 +182,9 @@ def session_fits(session, fonts, stacks, min_instances):
     path = Path(session) / "traces.json"
     traces = json.loads(path.read_text()) if path.exists() else None
     if traces is not None:
-        admitted = [k for k, s in stacks.items() if styles.style_of(k) in fonts and s["n"] >= min_instances and ord(styles.char_of(k)) in fonts[styles.style_of(k)].getBestCmap()]
+        # a glyph traced with the prior has fewer instances than the threshold and is admitted by its trace
+        admitted = [k for k, s in stacks.items() if styles.style_of(k) in fonts and (s["n"] >= min_instances or traces.get(k, {}).get("prior"))
+                    and styles.drawn_by(fonts[styles.style_of(k)], styles.char_of(k))]
         missing = [k for k in admitted if k not in traces]
         if not missing:
             seed = target.get()["fit"]["seed_glyph"]
@@ -213,7 +215,7 @@ def _export_one(key, fit, out, cutaways, draws, simplify, max_instances, sweep_m
     name = doc["name"]
     (out / "glyphs" / f"{name}.json").write_text(json.dumps(doc, separators=(",", ":")))
     (out / "sweep" / f"{name}.json").write_text(json.dumps(sw, separators=(",", ":")))
-    return dict(name=name, char=doc["char"], unicode=doc["unicode"], style=doc["style"], source="scanned", n=doc["n"], cards=len(doc["cards"]), nodes=doc["nodes"],
+    return dict(name=name, char=doc["char"], unicode=doc["unicode"], style=doc["style"], source="prior" if doc.get("prior") else "scanned", n=doc["n"], cards=len(doc["cards"]), nodes=doc["nodes"],
                 edge_rms_um=doc["edge_rms_um"], iou=doc["iou"], recommended_n=doc["recommended_n"], low_confidence=doc["n"] < CONFIDENT_INSTANCES or len(doc["cards"]) < CONFIDENT_CARDS)
 
 

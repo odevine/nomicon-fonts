@@ -431,7 +431,7 @@ def cmd_score(a):
             res["cards"][card] = dict(stacked=0)
             continue
         work = Path(a.out or session / "bench") / "stacks" / card
-        built = stack.build(sc, work, stacks_dir=work / "stacks", workers=a.workers, min_units=CARD_MIN_UNITS)
+        built = stack.build(sc, work, stacks_dir=work / "stacks", workers=a.workers, min_units=CARD_MIN_UNITS, few=False)
         dev = {}
         for inst in built["instances"]:
             if not inst["kept"] or inst["deviation_um"] is None:

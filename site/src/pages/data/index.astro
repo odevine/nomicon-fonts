@@ -106,7 +106,7 @@ const sizes: Record<string, string> = {
       <table>
         <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick.</caption>
         <thead><tr><th>Glyph</th><th class="r">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
-        <tbody>{rows.map((r) => <tr><th scope="row"><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.low_confidence ? ' (low confidence)' : ''}</th><td class="r">{r.n}</td><td class="r">{r.cards}</td><td class="r">{r.nodes}</td><td class="r">{fmt(r.edge_rms_um, 2)}</td><td class="r">{fmt(r.iou, 3)}</td><td class="r">{r.recommended_n}</td></tr>)}</tbody>
+        <tbody>{rows.map((r) => <tr><th scope="row"><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.source === 'prior' ? ' (prior)' : r.low_confidence ? ' (low confidence)' : ''}</th><td class="r">{r.n}</td><td class="r">{r.cards}</td><td class="r">{r.nodes}</td><td class="r">{fmt(r.edge_rms_um, 2)}</td><td class="r">{fmt(r.iou, 3)}</td><td class="r">{r.recommended_n}</td></tr>)}</tbody>
       </table>
     </div>
 

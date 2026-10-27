@@ -68,3 +68,25 @@ def test_a_mark_over_a_capital_takes_the_capital_form_of_its_accent():
     marks = [u for u in out if "anchor" in u]
     assert [m["ch"] for m in marks] == [styles.CASE["´"], "´"] and [m["anchor"]["base"] for m in marks] == ["E", "e"]
     assert styles.glyph_folder(styles.CASE["´"]) == "acute.case"
+
+
+def square(side=200.0, step=1.0):
+    """A square outline of the given side in font units as a dense closed polyline"""
+    t = np.arange(0, side, step)
+    return [np.concatenate([np.stack([t, 0 * t], 1), np.stack([0 * t + side, t], 1), np.stack([side - t, 0 * t + side], 1), np.stack([0 * t, side - t], 1)])]
+
+
+def test_the_prior_renders_the_outline_on_its_spread_contour_and_blends_as_instances():
+    from glyphstack import fontfit
+    from glyphstack.contours import contours_at
+
+    g = object.__new__(fontfit.FontGlyph)
+    g.contours = square()
+    # scale 0.2 puts the 200 unit square at 40 grid px, 30 px in, with a spread of 2 px
+    p = np.array([0.2, 1.0, 0.0, 30.0, 70.0, 2.0])
+    prior = fontfit.render(g, p, (100, 100), 1.5)
+    xs = np.vstack(contours_at(prior, 0.5))[:, 0]
+    assert abs(xs.min() - 28) < 0.3 and abs(xs.max() - 72) < 0.3
+    stack = np.zeros((100, 100), np.float32)
+    blend = fontfit.with_prior(g, p, stack, 2, 1.5, 2)
+    assert np.allclose(blend, prior / 2)
