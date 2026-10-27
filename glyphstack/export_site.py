@@ -174,7 +174,7 @@ def export_glyph(key, stack, rows, fit, g, p, ref, ncut, draws, tol=SIMPLIFY_FU,
 
 
 def session_fits(session, fonts, stacks, min_instances):
-    """The shared transform and each glyph's fit, read from the session's traces.json when it holds every glyph the threshold admits
+    """The shared transform, each traced glyph's fit and each glyph built from the measuring stick, read from the session's traces.json when it holds every glyph the threshold admits
 
     Only the shared transform is refitted then, since kerning needs it and traces.json does not keep it. Without the
     file, or when the threshold admits a glyph the session did not trace, every glyph is fitted again
@@ -189,9 +189,24 @@ def session_fits(session, fonts, stacks, min_instances):
         if not missing:
             seed = target.get()["fit"]["seed_glyph"]
             shared = fontfit.shared_transform(fonts[styles.primary()], stacks[seed]["mean"])
-            return shared, {k: traces[k] for k in admitted}
+            return shared, {k: traces[k] for k in admitted}, {k: t for k, t in traces.items() if t.get("built") and styles.style_of(k) in fonts}
         log.info("traces.json lacks %d glyphs at --min-instances %d, fitting every glyph again", len(missing), min_instances)
-    return fontfit.fit_all(fonts, stacks, min_instances)
+    shared, fits = fontfit.fit_all(fonts, stacks, min_instances, styles.latin_core())
+    return shared, {k: f for k, f in fits.items() if not f.get("built")}, {k: f for k, f in fits.items() if f.get("built")}
+
+
+def built_row(key, fit):
+    """The row of built.json for a glyph built from the measuring stick, with the print look it was drawn with or the parts it was composed from
+
+    The row carries no trace, since a glyph built from the measuring stick's outline would put the font in the site's data
+    """
+    ch = styles.char_of(key)
+    row = dict(name=styles.glyph_name(key), char=ch, unicode=f"U+{ord(ch):04X}", style=styles.style_of(key), source=fit["built"], n=fit["n"])
+    if "look" in fit:
+        row["look"] = {k: round(v, 2) for k, v in fit["look"].items()}
+    if "parts" in fit:
+        row["parts"] = [dict(char=pt["char"], glyph=pt["glyph"], source=pt["source"]) for pt in fit["parts"]]
+    return row
 
 
 _W = {}
@@ -285,7 +300,7 @@ def main():
     if missing:
         log.warning("%d glyphs of a face without a font are not exported, pass --face-font for their face", len(missing))
     with timed("fitting the measuring stick"):
-        shared, fits = session_fits(session, fonts, stacks, a.min_instances)
+        shared, fits, built = session_fits(session, fonts, stacks, a.min_instances)
     wanted = [k for k in fits if not a.only or styles.char_of(k) in a.only]
     prog = Progress("exporting glyphs", len(wanted), every=5)
     opts = (out, a.cutaways, a.draws, a.simplify, a.max_instances, a.sweep_max)
@@ -305,6 +320,7 @@ def main():
             prog.step(repr(key))
     index = [entries[k] for k in wanted]
     (out / "glyphs.json").write_text(json.dumps(index, indent=1))
+    (out / "built.json").write_text(json.dumps([built_row(k, f) for k, f in built.items() if not a.only or styles.char_of(k) in a.only], separators=(",", ":")))
 
     # kerning from the cached per-scan units, read one scan at a time
     scans = stack.ScanUnits(session)
@@ -337,7 +353,7 @@ def main():
     (out / "meta.json").write_text(json.dumps(meta_doc(a.min_instances), indent=1))
     if a.scans:
         site_crops.export(session, a.scans, out, wanted)
-    announce("wrote %s: %d glyphs, %d kerning pairs", out, len(index), len({r["pair"] for r in rows}))
+    announce("wrote %s: %d glyphs, %d built from the measuring stick, %d kerning pairs", out, len(index), len(built), len({r["pair"] for r in rows}))
 
 
 if __name__ == "__main__":

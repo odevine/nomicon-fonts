@@ -166,6 +166,9 @@ hero-stack { display: block; }
 .legend-row span::before { content: ''; display: inline-block; width: 1.15rem; height: 1.15rem; margin-right: 0.5rem; vertical-align: -0.25em; border-radius: 0.4rem; background: var(--fill); }
 .legend-row .sw-low::before { background: radial-gradient(circle at 74% 26%, var(--red) 0 0.17rem, transparent 0.18rem), var(--fill); }
 .legend-row .sw-empty::before { background: none; box-shadow: inset 0 0 0 1.5px var(--rule); }
+.legend-row .sw-built::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ink); }
+/* a glyph built from the measuring stick is a slot with a dark border, its outline left out so the font stays out of the data */
+.glyphmap li.built { border-radius: var(--r-md); position: relative; box-shadow: inset 0 0 0 1.5px var(--ink); padding: 1.5rem 0.5rem 0.6rem; text-align: center; }
 .glyphmap a.low svg { opacity: 0.4; }
 /* low confidence: a fainter letter and a printed red full stop in the corner */
 .glyphmap a.low::after { content: ''; position: absolute; top: 0.55rem; right: 0.55rem; width: 0.7rem; height: 0.7rem; background: var(--red); -webkit-mask: var(--dot-4) center / contain no-repeat; mask: var(--dot-4) center / contain no-repeat; }

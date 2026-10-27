@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(process.cwd(), 'data');
@@ -6,6 +6,8 @@ const read = (f: string) => JSON.parse(readFileSync(resolve(root, f), 'utf8'));
 
 export const fileSize = (f: string) => statSync(resolve(root, f)).size;
 export const glyphs = (): GlyphRow[] => read('glyphs.json');
+// data exported before glyphs were built from the measuring stick has no built.json
+export const built = (): BuiltRow[] => (existsSync(resolve(root, 'built.json')) ? read('built.json') : []);
 export const glyph = (name: string): GlyphDoc => read(`glyphs/${name}.json`);
 export const sweepOf = (name: string): Sweep => read(`sweep/${name}.json`);
 export const pairInfo = (name: string): PairInfo => read(`noise/${name}.json`);
@@ -22,6 +24,12 @@ export interface GlyphRow {
   name: string; char: string; unicode: string; style: string; source: string;
   n: number; cards: number; nodes: number; edge_rms_um: number; iou: number;
   recommended_n: number; low_confidence: boolean;
+}
+/** A glyph with no stack to trace, built as the measuring stick builds it: its outline drawn with its face's print look in grid px, or composed from parts. It has no trace, which would put the font in the site's data */
+export interface BuiltRow {
+  name: string; char: string; unicode: string; style: string; source: 'outline' | 'composed' | 'derived'; n: number;
+  look?: { d: number; w: number; r: number };
+  parts?: { char: string | null; glyph: string; source: string }[];
 }
 export interface GlyphDoc extends Omit<GlyphRow, 'cards' | 'source'> {
   adv: number; cards: string[]; trace: string; instances_total: number; instances_exported: number;
