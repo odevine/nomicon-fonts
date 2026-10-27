@@ -29,7 +29,7 @@ A cards file is the one place a scan folder records what was scanned: every card
   {
    "id": "ReefWorm",
    "name": "Reef Worm",
-   "text": "Rules:\n<rules text as printed>\nFlavor:\n<flavor text as printed>",
+   "text": {"rules": ["<first rules paragraph as printed>", "<second>"], "flavor": ["<flavor text as printed>"]},
    "scans": [
     {"file": "reefworm_0000.png", "angle": 0},
     {"file": "reefworm_0225.png", "angle": 22.5},
@@ -44,7 +44,7 @@ A cards file is the one place a scan folder records what was scanned: every card
   {
    "id": "Altair",
    "name": "Altaïr Ibn-La'Ahad",
-   "text": "Rules:\n<rules text as printed>",
+   "text": {"rules": ["<rules text as printed>"]},
    "scans": [
     {"file": "altair_000.png", "angle": 0},
     {"file": "altair_090.png", "angle": 90, "notes": "rescanned after the card slipped"}
@@ -58,7 +58,7 @@ A cards file is the one place a scan folder records what was scanned: every card
 
 **`id` groups the scans of one physical card.** The session only checks whether two scans share it. The site shows it, splitting CamelCase into words, so write it in CamelCase without spaces or accents, such as `ReefWorm` or `Altair`. It cannot contain a colon, because instance IDs are built as `card:char:scan:unit`. A card whose printed name has an accent gets an entry in the `display` table in `site/src/lib/format.ts`, the way `Altair` is shown as Altaïr.
 
-**`text` is the card's printed text in the scan list's Card text format.** Rules text goes under a `Rules:` line and flavor text under a `Flavor:` line, mana symbols are written as `{T}` or `{G}`, and the text is written as printed, since the benchmark's truth is fitted to it. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and any other italic text goes between underscores, as Photo Op's `any _Magic_ card`. A printed underscore is written `\_`, which the JSON file spells `\\_`, as in Steel Overseer's `ADMIN\\_USER\\_GROUP`, and any other backslash is printed as it stands. `name` is the printed name, `set` and `number` identify the printing, and `box` gives the rules box as y0 y1 x0 x1 fractions of the card for a frame that puts it elsewhere.
+**`text` holds the card's printed text, its `rules` and `flavor` each a list of the section's paragraphs.** A card with no flavor text leaves out `flavor`. Mana symbols are written as `{T}` or `{G}`, and the text is written as printed, since the benchmark's truth is fitted to it. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and any other italic text goes between underscores, as Photo Op's `any _Magic_ card`. A printed underscore is written `\_`, which the JSON file spells `\\_`, as in Steel Overseer's `ADMIN\\_USER\\_GROUP`, and any other backslash is printed as it stands. `name` is the printed name, `set` and `number` identify the printing, and `box` gives the rules box as y0 y1 x0 x1 fractions of the card for a frame that puts it elsewhere.
 
 **`angle` is the card's counterclockwise turn in degrees as it appears in the scan image.** The card lies face down on the glass, so a turn that looks counterclockwise from above shows up clockwise in the scan. Write the jig's angle plus any quarter turns, such as 112.5 for the 22.5 degree jig turned a quarter. Negative angles work too, and -22.5 is the same as 337.5. The card outline refines the angle only within a quarter turn, so the file has to give the quarter turn. If every off-axis scan warns that it is turned about twice its notch the other way, the jig turns against this convention, and each angle should be written as 360 minus the angle, such as 337.5 in place of 22.5.
 

@@ -48,19 +48,16 @@ WIDE_EM = 0.3
 
 
 def paragraphs(text):
-    """The card text as paragraphs, each a list of (character, face) with mana symbols as ("{X}", "symbol")
+    """A cards file text as paragraphs, each a list of (character, face) with mana symbols as ("{X}", "symbol")
 
-    Faces are regular or italic. Everything after a Flavor: line is italic, as are parentheses with what they hold, an
+    Faces are regular or italic. All flavor text is italic, as are parentheses with what they hold, an
     ability word before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one, and
     text the cards file marks italic between underscores
     """
-    out, flavor = [], False
-    for raw in text.split("\n"):
+    out = []
+    for raw, flavor in cards.paragraphs(text):
         marks = [on for _, on in cards.marked(raw)]
         line = cards.printed(raw)
-        if line.strip() in ("Rules:", "Flavor:"):
-            flavor = line.strip() == "Flavor:"
-            continue
         if not line.strip():
             continue
         chars, depth = [], 0

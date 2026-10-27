@@ -17,14 +17,14 @@ def faces(par):
 
 
 def test_flavor_reminder_text_and_ability_words_read_as_italic():
-    pars = truth.paragraphs("Rules:\nDraw a card. (It goes to your hand.)\nLandfall — Gain 1 life.\n{T}: Add {G}.\nFlavor:\n“Grow.”")
+    pars = truth.paragraphs(dict(rules=["Draw a card. (It goes to your hand.)", "Landfall — Gain 1 life.", "{T}: Add {G}."], flavor=["“Grow.”"]))
     assert len(pars) == 4
     first = "".join(c for c, _ in pars[0])
     assert faces(pars[0]) == "r" * first.index("(") + "i" * (len(first) - first.index("("))
     assert faces(pars[1]).startswith("i" * len("Landfall — ")) and faces(pars[1])[len("Landfall — ")] == "r"
     assert pars[2][0] == ("{T}", "symbol") and pars[2][-2] == ("{G}", "symbol")
     assert set(faces(pars[3])) == {"i"}
-    assert set(faces(truth.paragraphs("Rules:\nChoose one — Draw a card.")[0])) == {"r"}
+    assert set(faces(truth.paragraphs(dict(rules=["Choose one — Draw a card."]))[0])) == {"r"}
 
 
 def test_words_are_split_at_spaces_and_wrapped_to_the_ink_width():
@@ -92,7 +92,7 @@ def test_lines_are_found_with_their_baselines_and_ink_widths():
 def test_fit_places_rendered_text_where_it_was_drawn():
     target.use(target.DEFAULT)
     fonts = {"regular": font.load_font(str(FONT)), "italic": font.load_font(str(ITALIC))}
-    text = "Rules:\nThe quick brown fox jumps.\nFlavor:\nPack my box with jugs."
+    text = dict(rules=["The quick brown fox jumps."], flavor=["Pack my box with jugs."])
     gl = truth.Glyphs(fonts, 0.88)
     H, W = 1400, 3000
     card = np.full((int(H / 0.315), W), 210, np.uint8)
@@ -141,7 +141,7 @@ def test_fit_takes_the_exponent_form_where_a_glyph_is_printed_small_and_raised(m
     # every line is fitted again, so the test does not hang on how poorly the plain fit does
     monkeypatch.setattr(truth, "WIDE_NCC", 1.01)
     fonts = {"regular": font.load_font(str(FONT)), "italic": font.load_font(str(ITALIC))}
-    text = "Rules:\nso E 9090 N 9090 on."
+    text = dict(rules=["so E 9090 N 9090 on."])
     gl = truth.Glyphs(fonts, 0.88)
     W = 3000
     card = np.full((int(1400 / 0.315), W), 210, np.uint8)
@@ -167,7 +167,7 @@ def test_fit_takes_the_exponent_form_where_a_glyph_is_printed_small_and_raised(m
 def test_underscores_mark_italics_and_an_escaped_one_is_printed():
     from glyphstack import align
 
-    par = truth.paragraphs("Rules:\nany _Magic_ card set to ADMIN\\_USER |\\| y0|\\_|")[0]
+    par = truth.paragraphs(dict(rules=["any _Magic_ card set to ADMIN\\_USER |\\| y0|\\_|"]))[0]
     assert "".join(ch for ch, _ in par) == "any Magic card set to ADMIN_USER |\\| y0|_|"
     assert [ch for ch, face in par if face == "italic"] == list("Magic")
-    assert align.card_text("Rules:\nany _Magic_ card\nFlavor:\ny0|\\_|") == "any Magic card\ny0|_|"
+    assert align.card_text(dict(rules=["any _Magic_ card"], flavor=["y0|\\_|"])) == "any Magic card\ny0|_|"

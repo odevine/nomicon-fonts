@@ -1,7 +1,7 @@
 """A scan folder's cards file: every card scanned in the folder, with its printed name and text, and the scans of it
 
-A cards file is JSON with a list of cards, each with an `id`, its printed `name`, its `text` in the scan list's Card
-text format (paragraphs under `Rules:` and `Flavor:`, with other italic text between underscores and a printed
+A cards file is JSON with a list of cards, each with an `id`, its printed `name`, its `text` as an object whose `rules`
+and `flavor` each list the section's paragraphs as printed (other italic text between underscores and a printed
 underscore written as \\_), optionally its `set`, collector `number` and rules `box` as y0 y1
 x0 x1 fractions of the card for a frame that puts the box elsewhere, and its `scans`, each a `file` relative to the cards
 file's folder, the `angle` the card is turned counterclockwise in the scan image in degrees, and optional `notes`. The
@@ -11,6 +11,14 @@ import json
 from pathlib import Path
 
 from .log import log
+
+
+SECTIONS = {"rules", "flavor"}
+
+
+def paragraphs(text):
+    """A card's text as (paragraph, is flavor) in printed order, the rules first"""
+    return [(p, False) for p in text.get("rules", [])] + [(p, True) for p in text.get("flavor", [])]
 
 
 def marked(line):
@@ -48,6 +56,10 @@ def load(path):
         seen.add(cid)
         if not c.get("scans"):
             raise SystemExit(f"{path}: card {cid} has no scans")
+        text = c.get("text")
+        if text is not None and not (isinstance(text, dict) and set(text) <= SECTIONS
+                                     and all(isinstance(v, list) and all(isinstance(p, str) for p in v) for v in text.values())):
+            raise SystemExit(f"{path}: card {cid}'s text must be an object whose rules and flavor each list paragraphs")
         for s in c["scans"]:
             if not isinstance(s.get("angle"), (int, float)):
                 raise SystemExit(f"{path}: give an angle in degrees for {s.get('file')}")

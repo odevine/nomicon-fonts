@@ -22,7 +22,7 @@ def bed(dtype=np.uint8, turn=0):
 
 def cards_file(path, scans):
     """A cards file with one card X scanned as the given (file, angle) pairs"""
-    path.write_text(json.dumps(dict(cards=[dict(id="X", name="X", text="Rules:\nDraw a card.", scans=[dict(file=f, angle=a) for f, a in scans])])))
+    path.write_text(json.dumps(dict(cards=[dict(id="X", name="X", text=dict(rules=["Draw a card."]), scans=[dict(file=f, angle=a) for f, a in scans])])))
     return path
 
 
@@ -55,7 +55,7 @@ def test_crops_keep_pixels_format_and_provenance(tmp_path):
 
     assert len(a["source_sha256"]) == 64 and a["source_bytes"] == (src / "a.png").stat().st_size
     copy = json.loads((tmp_path / "out" / "cards.json").read_text())["cards"][0]
-    assert copy["scans"] == [dict(file="a.png", angle=0), dict(file="b.tif", angle=30)] and copy["text"] == "Rules:\nDraw a card."
+    assert copy["scans"] == [dict(file="a.png", angle=0), dict(file="b.tif", angle=30)] and copy["text"] == dict(rules=["Draw a card."])
 
 
 def test_rerun_keeps_unchanged_crops(tmp_path):

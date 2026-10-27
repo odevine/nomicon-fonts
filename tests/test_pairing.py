@@ -47,3 +47,14 @@ def test_cards_file_needs_an_angle_for_every_scan_and_a_plain_id(tmp_path):
     t.write_text(json.dumps(dict(cards=[dict(id="Reef Worm", scans=[dict(file="a.png", angle=0)])])))
     with pytest.raises(SystemExit, match="Reef Worm"):
         read_scans(t)
+
+
+def test_cards_file_text_lists_rules_and_flavor_paragraphs(tmp_path):
+    from glyphstack import cards
+
+    t = tmp_path / "cards.json"
+    t.write_text(json.dumps(dict(cards=[dict(id="X", text=dict(rules=["Flying"], flavor=["“Wark?”"]), scans=[dict(file="a.png", angle=0)])])))
+    assert cards.paragraphs(cards.load(t)[0]["text"]) == [("Flying", False), ("“Wark?”", True)]
+    t.write_text(json.dumps(dict(cards=[dict(id="X", text="Rules:\nFlying", scans=[dict(file="a.png", angle=0)])])))
+    with pytest.raises(SystemExit, match="rules and flavor"):
+        cards.load(t)
