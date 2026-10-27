@@ -1,14 +1,16 @@
 """Aligns segmented glyph boxes to the known printed text so every box gets its character"""
 import numpy as np
 
+from .cards import printed
+
 SKIP_BOX = 7.0
 SKIP_CHAR = 7.0
 MERGE_PENALTY = 1.5
 
 
 def card_text(text):
-    """A card's text from its cards file entry without the Rules: and Flavor: labels"""
-    return "\n".join(l for l in text.split("\n") if l not in ("Rules:", "Flavor:"))
+    """A card's printed text from its cards file entry, without the Rules: and Flavor: labels or italic markup"""
+    return "\n".join(printed(l) for l in text.split("\n") if l not in ("Rules:", "Flavor:"))
 
 
 def line_metrics(glyphs):

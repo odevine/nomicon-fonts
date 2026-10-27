@@ -162,3 +162,12 @@ def test_fit_takes_the_exponent_form_where_a_glyph_is_printed_small_and_raised(m
     got = truth.fit(card, text, fonts, scales=[0.88])
     assert [bool(c.get("small")) for c in got["chars"]] == small
     assert min(c["ncc"] for c in got["chars"]) > 0.8
+
+
+def test_underscores_mark_italics_and_an_escaped_one_is_printed():
+    from glyphstack import align
+
+    par = truth.paragraphs("Rules:\nany _Magic_ card set to ADMIN\\_USER |\\| y0|\\_|")[0]
+    assert "".join(ch for ch, _ in par) == "any Magic card set to ADMIN_USER |\\| y0|_|"
+    assert [ch for ch, face in par if face == "italic"] == list("Magic")
+    assert align.card_text("Rules:\nany _Magic_ card\nFlavor:\ny0|\\_|") == "any Magic card\ny0|_|"

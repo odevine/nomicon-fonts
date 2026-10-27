@@ -1,7 +1,8 @@
 """A scan folder's cards file: every card scanned in the folder, with its printed name and text, and the scans of it
 
 A cards file is JSON with a list of cards, each with an `id`, its printed `name`, its `text` in the scan list's Card
-text format (paragraphs under `Rules:` and `Flavor:`), optionally its `set`, collector `number` and rules `box` as y0 y1
+text format (paragraphs under `Rules:` and `Flavor:`, with other italic text between underscores and a printed
+underscore written as \\_), optionally its `set`, collector `number` and rules `box` as y0 y1
 x0 x1 fractions of the card for a frame that puts the box elsewhere, and its `scans`, each a `file` relative to the cards
 file's folder, the `angle` the card is turned counterclockwise in the scan image in degrees, and optional `notes`. The
 id groups the scans of one physical card and names it on the site, so it is CamelCase without spaces, accents or colons
@@ -10,6 +11,27 @@ import json
 from pathlib import Path
 
 from .log import log
+
+
+def marked(line):
+    """A line of card text as (character, marked italic) pairs, an underscore turning italics on or off and \\_ standing for a printed underscore"""
+    out, on, i = [], False, 0
+    while i < len(line):
+        if line.startswith("\\_", i):
+            out.append(("_", on))
+            i += 2
+        elif line[i] == "_":
+            on = not on
+            i += 1
+        else:
+            out.append((line[i], on))
+            i += 1
+    return out
+
+
+def printed(line):
+    """A line of card text as printed, without its italic markup"""
+    return "".join(ch for ch, _ in marked(line))
 
 
 def load(path):

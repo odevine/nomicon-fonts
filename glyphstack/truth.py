@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
+from . import cards
 from . import font as fnt
 from . import target
 from .scan import text_skew
@@ -49,11 +50,14 @@ WIDE_EM = 0.3
 def paragraphs(text):
     """The card text as paragraphs, each a list of (character, face) with mana symbols as ("{X}", "symbol")
 
-    Faces are regular or italic. Everything after a Flavor: line is italic, as are parentheses with what they hold and
-    an ability word before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one
+    Faces are regular or italic. Everything after a Flavor: line is italic, as are parentheses with what they hold, an
+    ability word before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one, and
+    text the cards file marks italic between underscores
     """
     out, flavor = [], False
-    for line in text.split("\n"):
+    for raw in text.split("\n"):
+        marks = [on for _, on in cards.marked(raw)]
+        line = cards.printed(raw)
         if line.strip() in ("Rules:", "Flavor:"):
             flavor = line.strip() == "Flavor:"
             continue
@@ -74,7 +78,7 @@ def paragraphs(text):
                 continue
             if ch == "(":
                 depth += 1
-            italic = flavor or depth > 0 or (ability is not None and i < ability.end())
+            italic = flavor or depth > 0 or (ability is not None and i < ability.end()) or marks[i]
             chars.append((ch, "italic" if italic else "regular"))
             if ch == ")":
                 depth = max(depth - 1, 0)
