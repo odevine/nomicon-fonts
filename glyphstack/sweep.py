@@ -15,7 +15,9 @@ def grid(n):
     k = 28
     while k * 1.3 < n:
         k = int(round(k * 1.3 / 4) * 4)
-        ns.append(k)
+        # rounding to a multiple of 4 can pass n, which is sampled as itself
+        if k < n:
+            ns.append(k)
     return sorted(set(ns + [n]))
 
 
