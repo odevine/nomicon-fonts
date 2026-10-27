@@ -9,7 +9,8 @@ by matching the line's ink width, and the glyphs of each line are placed by a Vi
 normalised cross correlation of each rendered glyph with a darkness image while letting each advance, kerned as the
 font kerns it, stretch by a few pixels. The print scale is then searched with the line breaks fixed, and at that scale a line that
 still fits poorly is fitted again over a wider range of baselines with each glyph free to sit further off it and to
-take an exponent form, smaller and raised, as a formula's minus signs and exponents are printed. Every box is turned back into the card crop as a quad
+take an exponent form, smaller and raised, as a formula's minus signs and exponents are printed. On a line that fits well, a glyph that
+correlates poorly is then moved a little where it correlates well, since the print spaces some glyphs further apart. Every box is turned back into the card crop as a quad
 """
 import re
 
@@ -48,6 +49,12 @@ WIDE_EM = 0.3
 # and each glyph of that line may sit this share of the em off its baseline, as a formula's minus is printed below the
 # measuring stick's
 WIDE_JITTER_EM = 0.25
+# a glyph that correlates less than this on its line is searched for this share of the em either way and moved where it
+# reaches it, as the print sets some glyphs further from their neighbours than the measuring stick spaces them, so long as
+# it lands on no neighbour's box
+REFINE_NCC = 0.5
+REFINE_EM = 0.3
+REFINE_OVERLAP = 0.3
 
 
 def paragraphs(text):
@@ -299,6 +306,48 @@ def fit_line(chars, scores, glyphs, b0, search=8, exponents=False, jitter=JITTER
     return best
 
 
+def refine(found, reach):
+    """Moves each placed glyph that correlates less than REFINE_NCC on a line that fits well to the best place within reach px across and its jitter rows down or up, where that reaches REFINE_NCC and lands on no neighbour's box
+
+    A neighbour that a moved glyph then lands on is searched the same way, as a full stop the line fit tucked into the
+    letter before it
+    """
+    box = lambda f: (f["x"] + f["ink"][0], f["x"] + f["ink"][1], f["y"] + f["ink"][2], f["y"] + f["ink"][3])
+
+    def overlap(a, b):
+        w = min(a[1], b[1]) - max(a[0], b[0])
+        h = min(a[3], b[3]) - max(a[2], b[2])
+        return max(w, 0) * max(h, 0) / ((a[1] - a[0]) * (a[3] - a[2]))
+
+    def move(line, k):
+        """Moves glyph k of a line to its best clear place reaching REFINE_NCC, returns whether it moved"""
+        f = line[k]
+        R, j = f["R"], max(f["jitter"], JITTER_PX)
+        y0, x0 = max(f["y"] - j, 0), max(f["x"] - reach, 0)
+        win = R[y0 : f["y"] + j + 1, x0 : f["x"] + reach + 1]
+        for flat in np.argsort(win, axis=None)[::-1][:50] if win.size else []:
+            yy, xx = np.unravel_index(flat, win.shape)
+            if win[yy, xx] < REFINE_NCC:
+                break
+            cand = dict(f, x=x0 + int(xx), y=y0 + int(yy))
+            if all(overlap(box(cand), box(o)) <= REFINE_OVERLAP for o in line[max(k - 2, 0) : k + 3] if o is not f):
+                f.update(x=cand["x"], y=cand["y"], ncc=float(win[yy, xx]))
+                return True
+        return False
+
+    lines = {}
+    for f in found:
+        lines.setdefault(f["li"], []).append(f)
+    for line in lines.values():
+        if np.mean([f["ncc"] for f in line]) < REFINE_NCC:
+            continue
+        moved = [k for k, f in enumerate(line) if f["ncc"] < REFINE_NCC and move(line, k)]
+        for k in moved:
+            for n in (k - 1, k + 1):
+                if 0 <= n < len(line) and n not in moved and overlap(box(line[n]), box(line[k])) > REFINE_OVERLAP:
+                    move(line, n)
+
+
 def placement_ncc(scores, glyphs, ch, face, p, b, small=False, jitter=JITTER_PX):
     """The correlation of one placed glyph at pen x p on baseline b, the best within the baseline jitter, None without an image"""
     t = glyphs(ch, face, small)
@@ -514,7 +563,7 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
             _, wb, wpl, _ = fit_line(lines[li]["chars"], sc, gl, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True, jitter=wide)
             if mean_ncc(wb, wpl, wide) > before:
                 placed[k] = (li, wb, wpl, wide)
-    chars = []
+    found = []
     for li, b, pl, jitter in placed:
         for ch, face, p, small in pl:
             t = gl(ch, face, small)
@@ -526,11 +575,17 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
             rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]] or [min(max(b + oy, 0), R.shape[0] - 1)]
             ry = rows[int(np.argmax(R[rows, x]))]
             ys, xs = np.nonzero(t["img"] > 0.5)
-            q = np.array([[x + xs.min(), ry + ys.min()], [x + xs.max() + 1, ry + ys.min()], [x + xs.max() + 1, ry + ys.max() + 1], [x + xs.min(), ry + ys.max() + 1]], float)
-            q = q @ back[:, :2].T + back[:, 2]
-            chars.append(dict(line=li, ch=ch, face=face, ncc=round(float(R[ry, x]), 4), quad=np.round(q, 1).tolist(),
-                              x0=int(np.floor(q[:, 0].min())), x1=int(np.ceil(q[:, 0].max())), y0=int(np.floor(q[:, 1].min())), y1=int(np.ceil(q[:, 1].max())))
-                         | (dict(small=True) if small else {}))
+            found.append(dict(li=li, ch=ch, face=face, small=small, x=x, y=ry, ncc=float(R[ry, x]), ink=(xs.min(), xs.max() + 1, ys.min(), ys.max() + 1), R=R, jitter=jitter))
+    refine(found, int(REFINE_EM * gl.px_em))
+    chars = []
+    for f in found:
+        x0i, x1i, y0i, y1i = f["ink"]
+        x, ry = f["x"], f["y"]
+        q = np.array([[x + x0i, ry + y0i], [x + x1i, ry + y0i], [x + x1i, ry + y1i], [x + x0i, ry + y1i]], float)
+        q = q @ back[:, :2].T + back[:, 2]
+        chars.append(dict(line=f["li"], ch=f["ch"], face=f["face"], ncc=round(f["ncc"], 4), quad=np.round(q, 1).tolist(),
+                          x0=int(np.floor(q[:, 0].min())), x1=int(np.ceil(q[:, 0].max())), y0=int(np.floor(q[:, 1].min())), y1=int(np.ceil(q[:, 1].max())))
+                     | (dict(small=True) if f["small"] else {}))
     return dict(scale=s, skew_deg=round(float(skew), 3), box=[int(v) for v in bounds], lines=len(lines), chars=chars)
 
 
