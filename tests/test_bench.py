@@ -133,3 +133,32 @@ def test_a_kerned_neighbour_inside_a_units_box_does_not_make_it_merged():
     mask[30:52, 40:56] = True
     out, _ = bench.score([t], [dict(t, ch="T")], chars)
     assert out["merged"] == 1
+
+
+@needs_fonts
+def test_fit_takes_the_exponent_form_where_a_glyph_is_printed_small_and_raised(monkeypatch):
+    target.use(target.DEFAULT)
+    # every line is fitted again, so the test does not hang on how poorly the plain fit does
+    monkeypatch.setattr(truth, "WIDE_NCC", 1.01)
+    fonts = {"regular": font.load_font(str(FONT)), "italic": font.load_font(str(ITALIC))}
+    text = "Rules:\nso E 9090 N 9090 on."
+    gl = truth.Glyphs(fonts, 0.88)
+    W = 3000
+    card = np.full((int(1400 / 0.315), W), 210, np.uint8)
+    base = int(truth.BOX[0] * card.shape[0]) + 200
+    pen = float(int(truth.BOX[2] * W) + 120)
+    small = []
+    for ch, face in truth.paragraphs(text)[0]:
+        sm = ch in "90"
+        t = gl(ch, face, sm)
+        if t["img"] is not None:
+            ox, oy = t["off"]
+            h, w = t["img"].shape
+            sl = (slice(base + oy, base + oy + h), slice(int(pen) + ox, int(pen) + ox + w))
+            card[sl] = np.minimum(card[sl], (210 - 185 * t["img"]).astype(np.uint8))
+            small.append(sm)
+        pen += t["adv"]
+    card = cv2.GaussianBlur(card, (0, 0), 1.0)
+    got = truth.fit(card, text, fonts, scales=[0.88])
+    assert [bool(c.get("small")) for c in got["chars"]] == small
+    assert min(c["ncc"] for c in got["chars"]) > 0.8

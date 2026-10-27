@@ -7,7 +7,9 @@ as {T} are kept as gaps that are not placed. The box is turned level by its text
 askew in a scan the pipeline does not turn. Each printed line is found from the rows of ink, words are given to lines
 by matching the line's ink width, and the glyphs of each line are placed by a Viterbi pass that maximises the summed
 normalised cross correlation of each rendered glyph with a darkness image while letting each advance, kerned as the
-font kerns it, stretch by a few pixels. The print scale is then searched with the line breaks fixed. Every box is turned back into the card crop as a quad
+font kerns it, stretch by a few pixels. The print scale is then searched with the line breaks fixed, and at that scale a line that
+still fits poorly is fitted again over a wider range of baselines with each glyph free to take an exponent form,
+smaller and raised, as a formula's exponents are printed. Every box is turned back into the card crop as a quad
 """
 import re
 
@@ -33,6 +35,15 @@ GAP_EM = 0.8
 SKIP_NCC = 0.3
 # a line's last word whose glyphs average less correlation than this was placed on the frame past the line's end
 LAST_WORD_NCC = 0.35
+# a glyph set as an exponent, such as the 90° of Niv-Mizzet's formula, prints at this share of its size and raised this
+# share of the em, measured on that card
+SMALL = 0.83
+RAISE_EM = 0.17
+# a line whose glyphs average less correlation than this is fitted again with its baseline searched this share of the
+# em either way, since a line with few x-height letters, such as a formula, can take its baseline from the wrong zone,
+# and with each glyph free to take its exponent form
+WIDE_NCC = 0.5
+WIDE_EM = 0.3
 
 
 def paragraphs(text):
@@ -116,17 +127,18 @@ class Glyphs:
         self.aspect = t["aspect"]
         self.cache = {}
 
-    def __call__(self, ch, face):
-        key = (ch, face)
+    def __call__(self, ch, face, small=False):
+        """A glyph's image, offset and advance, in its exponent form raised and smaller when small"""
+        key = (ch, face, small)
         if key not in self.cache:
-            self.cache[key] = self._render(ch, face)
+            self.cache[key] = self._render(ch, face, small)
         return self.cache[key]
 
-    def _render(self, ch, face):
+    def _render(self, ch, face, small=False):
         if face == "symbol":
             return dict(img=None, off=(0, 0), adv=SYMBOL_EM * self.px_em)
         font = self.fonts[face]
-        sx = self.px_em / font["head"].unitsPerEm
+        sx = self.px_em * (SMALL if small else 1) / font["head"].unitsPerEm
         cmap = font.getBestCmap()
         if ord(ch) not in cmap:
             return dict(img=None, off=(0, 0), adv=0.5 * self.px_em)
@@ -144,7 +156,8 @@ class Glyphs:
             cv2.fillPoly(mm, [np.round((p - lo) * SUPERSAMPLE * 16).astype(np.int32)], 1, lineType=cv2.LINE_8, shift=4)
             m ^= mm
         img = cv2.resize(m.astype(np.float32), (W, H), interpolation=cv2.INTER_AREA)
-        return dict(img=img, off=(int(lo[0]), int(lo[1])), adv=adv)
+        raise_px = int(round(RAISE_EM * self.px_em)) if small else 0
+        return dict(img=img, off=(int(lo[0]), int(lo[1]) - raise_px), adv=adv)
 
     def space(self):
         return self(" ", "regular")["adv"]
@@ -192,58 +205,74 @@ def runs(chars):
     return out, gaps
 
 
-def fit_run(run, scores, glyphs, b, xmin):
-    """Viterbi placement of one run at baseline row b, returns (score, pen positions)"""
+def fit_run(run, scores, glyphs, b, xmin, exponents=False):
+    """Viterbi placement of one run at baseline row b, with exponents each glyph in its own form or its exponent form, returns (score, pen positions, forms)"""
     W = scores.D.shape[1]
     NEG = np.float32(-1e9)
-    score, back, prev_adv, prev = None, [], 0.0, None
+    forms = (False, True) if exponents else (False,)
+    score, back, prev = None, [], None
     for ch, face in run:
-        if prev is not None:
-            prev_adv += glyphs.kern(prev, (ch, face))
-        prev = (ch, face)
-        t = glyphs(ch, face)
-        R = scores[(ch, face)]
-        s = np.zeros(W, np.float32)
-        if R is not None:
-            ox, oy = t["off"]
-            rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]]
-            s = np.full(W, NEG, np.float32)
-            if rows:
-                best = R[rows].max(0)
-                xs = np.arange(W) + ox
-                ok = (xs >= 0) & (xs < len(best))
-                s[ok] = best[xs[ok]]
+        em = []
+        for small in forms:
+            t = glyphs(ch, face, small)
+            R = scores[(ch, face, small)]
+            s = np.zeros(W, np.float32)
+            if R is not None:
+                ox, oy = t["off"]
+                rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]]
+                s = np.full(W, NEG, np.float32)
+                if rows:
+                    best = R[rows].max(0)
+                    xs = np.arange(W) + ox
+                    ok = (xs >= 0) & (xs < len(best))
+                    s[ok] = best[xs[ok]]
+            em.append(s)
         if score is None:
-            score = s.copy()
-            score[: max(xmin, 0)] = NEG
+            score = [s.copy() for s in em]
+            for s in score:
+                s[: max(xmin, 0)] = NEG
             back.append(None)
         else:
-            step = int(round(prev_adv))
-            best = np.full(W, NEG, np.float32)
-            arg = np.zeros(W, np.int32)
-            for d in range(-SLACK_PX, SLACK_PX + 1):
-                sh = step + d
-                if sh <= 0 or sh >= W:
-                    continue
-                cand = np.full(W, NEG, np.float32)
-                cand[sh:] = score[: W - sh] - 0.004 * abs(d)
-                better = cand > best
-                best[better] = cand[better]
-                arg[better] = sh
-            score = best + s
-            back.append(arg)
-        prev_adv = t["adv"]
-    end = int(np.argmax(score))
-    pos = [end]
-    for arg in reversed(back[1:]):
-        pos.append(pos[-1] - int(arg[pos[-1]]))
-    return float(score[end]), pos[::-1]
+            new, links = [], []
+            for f in range(len(forms)):
+                best = np.full(W, NEG, np.float32)
+                arg = np.zeros(W, np.int32)
+                came = np.zeros(W, np.int8)
+                for pf, psmall in enumerate(forms):
+                    # kerning is the font's between glyphs of one size
+                    adv = glyphs(*prev, psmall)["adv"] + (glyphs.kern(prev, (ch, face)) if not (psmall or forms[f]) else 0.0)
+                    step = int(round(adv))
+                    for d in range(-SLACK_PX, SLACK_PX + 1):
+                        sh = step + d
+                        if sh <= 0 or sh >= W:
+                            continue
+                        cand = np.full(W, NEG, np.float32)
+                        cand[sh:] = score[pf][: W - sh] - 0.004 * abs(d)
+                        better = cand > best
+                        best[better] = cand[better]
+                        arg[better] = sh
+                        came[better] = pf
+                new.append(best + em[f])
+                links.append((arg, came))
+            score = new
+            back.append(links)
+        prev = (ch, face)
+    f = int(np.argmax([s.max() for s in score]))
+    end = int(np.argmax(score[f]))
+    total = float(score[f][end])
+    pos, fs = [end], [f]
+    for links in reversed(back[1:]):
+        arg, came = links[fs[-1]]
+        x = pos[-1]
+        pos.append(x - int(arg[x]))
+        fs.append(int(came[x]))
+    return total, pos[::-1], [forms[k] for k in fs[::-1]]
 
 
-def fit_line(chars, scores, glyphs, b0, search=8):
-    """Places a line's characters with its baseline searched within `search` rows of b0
+def fit_line(chars, scores, glyphs, b0, search=8, exponents=False):
+    """Places a line's characters with its baseline searched within `search` rows of b0, with exponents letting each take its exponent form
 
-    Returns (score, baseline, [(character, face, pen x)], right edge of the line's last ink or symbol)
+    Returns (score, baseline, [(character, face, pen x, exponent form)], right edge of the line's last ink or symbol)
     """
     best = None
     rs, gaps = runs(chars)
@@ -254,10 +283,10 @@ def fit_line(chars, scores, glyphs, b0, search=8):
         for k, r in enumerate(rs):
             if k in gaps and placed:
                 xmin = int(right + glyphs("{}", "symbol")["adv"])
-            s, pos = fit_run(r, scores, glyphs, b, xmin)
+            s, pos, small = fit_run(r, scores, glyphs, b, xmin, exponents)
             total += s
-            placed += [(ch, face, p) for (ch, face), p in zip(r, pos)]
-            right = pos[-1] + glyphs(*r[-1])["adv"]
+            placed += [(ch, face, p, sm) for (ch, face), p, sm in zip(r, pos, small)]
+            right = pos[-1] + glyphs(*r[-1], small[-1])["adv"]
             xmin = int(right) + 10
         if gaps and gaps[-1] == len(rs):
             right += glyphs("{}", "symbol")["adv"]
@@ -266,10 +295,10 @@ def fit_line(chars, scores, glyphs, b0, search=8):
     return best
 
 
-def placement_ncc(scores, glyphs, ch, face, p, b):
+def placement_ncc(scores, glyphs, ch, face, p, b, small=False):
     """The correlation of one placed glyph at pen x p on baseline b, the best within the baseline jitter, None without an image"""
-    t = glyphs(ch, face)
-    R = scores[(ch, face)]
+    t = glyphs(ch, face, small)
+    R = scores[(ch, face, small)]
     if R is None:
         return None
     ox, oy = t["off"]
@@ -376,7 +405,7 @@ def assign(pars, lines, glyphs, scores):
                 chars = [c for w in words[start : k + 1] for c in w + [(" ", "regular")]][:-1]
                 score, b, placed, right = fit_line(chars, scores, glyphs, line["base"])
                 n = sum(glyphs(ch, face)["img"] is not None for ch, face in chars)
-                last = [placement_ncc(scores, glyphs, ch, face, p, b) for ch, face, p in placed[-len(words[k]) :]]
+                last = [placement_ncc(scores, glyphs, ch, face, p, b, sm) for ch, face, p, sm in placed[-len(words[k]) :]]
                 last = [v for v in last if v is not None]
                 fits.append((abs(right - line["x1"]), k, chars, score / max(n, 1), np.mean(last) if last else 1.0))
             best = min(fits)
@@ -473,13 +502,20 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
         if best is None or total > best[0]:
             best = (total, float(s), placed, gl, sc)
     total, s, placed, gl, sc = best
+    mean_ncc = lambda b, pl: np.mean([v for v in (placement_ncc(sc, gl, ch, face, p, b, sm) for ch, face, p, sm in pl) if v is not None] or [1.0])
+    for k, (li, b, pl) in enumerate(placed):
+        before = mean_ncc(b, pl)
+        if before < WIDE_NCC:
+            _, wb, wpl, _ = fit_line(lines[li]["chars"], sc, gl, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True)
+            if mean_ncc(wb, wpl) > before:
+                placed[k] = (li, wb, wpl)
     chars = []
     for li, b, pl in placed:
-        for ch, face, p in pl:
-            t = gl(ch, face)
+        for ch, face, p, small in pl:
+            t = gl(ch, face, small)
             if t["img"] is None:
                 continue
-            R = sc[(ch, face)]
+            R = sc[(ch, face, small)]
             ox, oy = t["off"]
             x = min(max(p + ox, 0), R.shape[1] - 1)
             rows = [r for r in range(b + oy - JITTER_PX, b + oy + JITTER_PX + 1) if 0 <= r < R.shape[0]] or [min(max(b + oy, 0), R.shape[0] - 1)]
@@ -488,7 +524,8 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
             q = np.array([[x + xs.min(), ry + ys.min()], [x + xs.max() + 1, ry + ys.min()], [x + xs.max() + 1, ry + ys.max() + 1], [x + xs.min(), ry + ys.max() + 1]], float)
             q = q @ back[:, :2].T + back[:, 2]
             chars.append(dict(line=li, ch=ch, face=face, ncc=round(float(R[ry, x]), 4), quad=np.round(q, 1).tolist(),
-                              x0=int(np.floor(q[:, 0].min())), x1=int(np.ceil(q[:, 0].max())), y0=int(np.floor(q[:, 1].min())), y1=int(np.ceil(q[:, 1].max()))))
+                              x0=int(np.floor(q[:, 0].min())), x1=int(np.ceil(q[:, 0].max())), y0=int(np.floor(q[:, 1].min())), y1=int(np.ceil(q[:, 1].max())))
+                         | (dict(small=True) if small else {}))
     return dict(scale=s, skew_deg=round(float(skew), 3), box=[int(v) for v in bounds], lines=len(lines), chars=chars)
 
 
