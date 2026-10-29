@@ -98,6 +98,16 @@ A profile lists the typeface's faces. The first is the primary face: its glyph k
 
 `rules_texture.toml` reads the same face from text boxes printed over a gradient, a tint or faint art. Its `[texture]` section divides the card by its local paper level and blurs away a halftone screen where the screen is strong against the paper to ink range, leaving a plain box sharp, and `glyphstack/texture.py` documents each setting. Its `[templates]` section sets `scale_search = "count"`, which takes the print scale at which the most units are labelled, and `self_rounds = 1`, which labels the units again against templates learned from the card's own kept units. A profile without these settings reads as before.
 
+A glyph on strong screen can also read its coverage through a small network, which labelling and stacking then use, while finding still reads the prepared image. `glyphstack/coverage_net.py` trains it on glyphs from plain background printed onto the bare screen of the cards that have it, by a forward model of black ink overprinted on a halftone screen, and runs it in numpy. Training needs torch, from the `train` extra, and an earlier session of the profile whose units give the glyphs. The weights come from card scans, so keep them outside git, under `build/`:
+
+```
+.venv/bin/pip install -e '.[train]'
+.venv/bin/python -m glyphstack.coverage_net train build/session scans/cards.json -o build/coverage_net/rules_texture.npz
+.venv/bin/python -m glyphstack.session scans/cards.json -o build/session --profile rules_texture --font /path/to/font.ttf --italic-font /path/to/italic.ttf --coverage-model build/coverage_net/rules_texture.npz
+```
+
+A unit whose centre has screen contrast past the first value of the profile's texture `coverage_contrast` takes the network's coverage, in full past the second, and a unit on plain background keeps its own. The extraction cache is keyed on the weights, so new weights read every scan again. A card turned by other than quarter turns keeps its native coverage as before.
+
 With `keep_marks` set, accents stay apart from their letters as marks of their own. A unit just over a letter is labelled against the measuring stick's spacing accents, a mark over a capital takes its accent's capital form (`acute.case` beside `acute`), and each mark records its anchor, the offset of its centre and the gap to its base in x-heights. Each labelled i and j is also split into its dotless stem and its dot, kept beside the whole letter, which feed the `dotlessi`, `dotlessj` and `dotaccent` stacks most accented letters are composed from.
 
 The other sections hold the settings tuned to the type: the segmentation threshold and size limits with the rules that join an i dot or the parts of a punctuation mark into one unit, the template character set, em size and print scale range, the matching thresholds, the characters scan geometry is estimated from, the stacking thresholds, the glyph the shared fit starts from with its starting values, and the glyph and card the site's step figure uses. `rules.toml` documents each one.

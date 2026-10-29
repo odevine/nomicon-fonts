@@ -108,6 +108,9 @@ descreen_sigma = 1.5
 # screen contrast, the high pass rms around the ink over the paper to ink range, below which pixels stay sharp and
 # above which they take the blur in full. A plain box reads about 0.08, art or a dark gradient 0.13 to 0.16
 descreen_contrast = [0.09, 0.12]
+# with a session's --coverage-model, a unit whose centre has screen contrast past the first value reads its coverage
+# through the network of coverage_net.py, in full from the second
+coverage_contrast = [0.09, 0.12]
 
 [geometry]
 # scan geometry is estimated from the most frequent characters of the primary face in this pool

@@ -248,13 +248,14 @@ def local_paper(g, ring, box, paper):
     return float(np.median(vals)) if len(vals) >= cfg["local_min_px"] else paper
 
 
-def coverage_units(g, lab, comps, paper, ink, allink, halo=HALO_PX, ring=None):
+def coverage_units(g, lab, comps, paper, ink, allink, halo=HALO_PX, ring=None, net=None):
     """Builds one unit per component: coverage with halftone suppressed and neighbouring ink masked by a halo
 
     Coordinates in `box` index the scan crop, `mask` is the unit's own component inside that box and
     `bbox` is the component extent in the same crop frame. The box is trimmed to the window around the ink,
     so the coverage carries no empty padding. With the ring mask given each unit takes its own local paper level,
-    which it records as `paper`
+    which it records as `paper`. With `net`, a `coverage_net.reader`, a unit on strong screen takes the network's
+    coverage over the same window, blended in by the weight it gives
     """
     units = []
     for c in comps:
@@ -269,6 +270,10 @@ def coverage_units(g, lab, comps, paper, ink, allink, halo=HALO_PX, ring=None):
         y0, y1, x0, x1 = y0 + ty0, y0 + ty1, x0 + tx0, x0 + tx1
         p = paper if ring is None else local_paper(g, ring, (y0, y1, x0, x1), paper)
         cov = coverage(g[y0:y1, x0:x1], p, ink) * win
+        read = net and net((y0, y1, x0, x1), m)
+        if read:
+            ncov, nw = read
+            cov = (1 - nw) * cov + nw * ncov * win
         u = dict(
             cov=cov.astype(np.float32), box=(y0, y1, x0, x1), mask=m, halo_px=halo,
             cy=(c["y0"] + c["y1"]) / 2, cx=(c["x0"] + c["x1"]) / 2, bbox=(c["y0"], c["y1"], c["x0"], c["x1"]),
@@ -360,11 +365,15 @@ def extract_scan(path, angle=0):
     For a card turned by other than quarter turns, `to_up` maps the quarter-turned native crop to the upright crop
     and every unit also carries its native coverage. The profile's texture settings are applied once the card is
     found and turned, to the upright and the native pixels alike, since flattening lifts the bed around the card
-    to the paper level the outline is told apart from
+    to the paper level the outline is told apart from. With a coverage network loaded, units on strong screen read their
+    coverage through it from the upright crop before preparation, and a turned scan's native coverage does not
     """
     with timed(f"extracting {Path(path).name}"):
         crop, origin = card_crop(load_gray(path))
         crop, native, to_up = upright(crop, angle, Path(path).name)
+        from . import coverage_net  # imported here since coverage_net imports this module
+
+        net = coverage_net.reader(crop) if coverage_net.active() else None
         if texture.active():
             same = native is crop
             crop = texture.prepare(crop)
@@ -373,7 +382,7 @@ def extract_scan(path, angle=0):
         kept = in_regions(comps, crop.shape)
         paper, ink, allink, ring = scan_levels(crop, lab, comps, kept)
         local = target.get()["paper"]["mode"] == "local"
-        units = coverage_units(crop, lab, kept, paper, ink, allink, ring=ring if local else None)
+        units = coverage_units(crop, lab, kept, paper, ink, allink, ring=ring if local else None, net=net)
         if native is not crop:
             native_units(units, native, to_up, paper, ink)
         log.info("card %dx%d px, %d components, %d in regions, paper %.0f ink %.0f", crop.shape[1], crop.shape[0], len(comps), len(kept), paper, ink)

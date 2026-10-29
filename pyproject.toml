@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+# training the coverage network of coverage_net.py, which extraction reads without it
+train = ["torch"]
 
 [build-system]
 requires = ["setuptools>=69"]

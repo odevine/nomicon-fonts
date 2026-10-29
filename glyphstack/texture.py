@@ -14,7 +14,7 @@ from . import target
 
 # the defaults leave a scan untouched, so a profile without a texture section reads as before
 DEFAULTS = dict(flatten=False, envelope_px=41, envelope_blur=10.0, paper_level=216.0, ink_level=25.0, descreen_sigma=0.0,
-                descreen_contrast=[0.09, 0.12], highpass_sigma=3.0, contrast_sigma=25.0, ink_grow_px=5)
+                descreen_contrast=[0.09, 0.12], highpass_sigma=3.0, contrast_sigma=25.0, ink_grow_px=5, coverage_contrast=[0.09, 0.12])
 
 
 def settings():
