@@ -10,6 +10,7 @@ export const glyphs = (): GlyphRow[] => read('glyphs.json');
 export const built = (): BuiltRow[] => (existsSync(resolve(root, 'built.json')) ? read('built.json') : []);
 export const glyph = (name: string): GlyphDoc => read(`glyphs/${name}.json`);
 export const sweepOf = (name: string): Sweep => read(`sweep/${name}.json`);
+export const hasPair = (name: string) => existsSync(resolve(root, `noise/${name}.json`));
 export const pairInfo = (name: string): PairInfo => read(`noise/${name}.json`);
 export const noise = (): Noise => read('noise.json');
 export const calibration = (): Calibration => read('calibration.json');

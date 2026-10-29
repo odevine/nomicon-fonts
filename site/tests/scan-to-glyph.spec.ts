@@ -52,7 +52,8 @@ test('every published crop and step image is small, never a whole card', async (
       const i = buf.indexOf('VP8L');
       const b = buf.subarray(i + 9, i + 13);
       const w = 1 + (((b[1] & 0x3f) << 8) | b[0]);
-      sizes.push(w);
+      // cov4 crops sit on the registration grid, four times finer than a scan pixel
+      sizes.push(f.includes('_cov4') ? w / 4 : w);
     }
   }
   expect(Math.max(...sizes)).toBeLessThanOrEqual(480);

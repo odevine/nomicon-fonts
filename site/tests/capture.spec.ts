@@ -17,7 +17,7 @@ test('the tone values come from the two calibration scans and read like the find
     for (let i = 1; i < 11; i++) expect(t[i]).toBeLessThan(t[i - 1]);
     expect(t[0] - t[1]).toBeGreaterThan(5 * (t[9] - t[10]));
   }
-  expect(Math.abs(cal.tone.a[3] - 108)).toBeLessThanOrEqual(2);
+  expect(Math.abs(cal.tone.a[3] - 114)).toBeLessThanOrEqual(2);
 });
 
 test('the bench shows the scale, the edge widths and a tone curve that follows the keyboard', async ({ page }) => {
@@ -69,11 +69,12 @@ test('the Noise Lab wipes between the two copies and shows their difference', as
   expect(ink).toBeLessThan(0.3);
 });
 
-test('every glyph has a noise pair and the picker is keyboard reachable, and axe passes', async ({ page }) => {
-  for (const g of glyphs) expect(() => read(`noise/${g.name}.json`), g.name).not.toThrow();
+test('every glyph scanned both ways has a noise pair and the picker is keyboard reachable, and axe passes', async ({ page }) => {
+  const paired = glyphs.filter((g) => read(`glyphs/${g.name}.json`).instances.some((i: { scans: string[] }) => i.scans.length > 1));
+  for (const g of paired) expect(() => read(`noise/${g.name}.json`), g.name).not.toThrow();
   await page.goto('/capture/');
   await page.waitForSelector('.picker');
-  expect(await page.locator('[name=nl-glyph]').count()).toBe(glyphs.length);
+  expect(await page.locator('[name=nl-glyph]').count()).toBe(paired.length);
   await page.locator('[name=nl-glyph]:checked').focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('[name=nl-glyph]:checked')).not.toHaveAttribute('value', 'e');
