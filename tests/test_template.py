@@ -27,6 +27,16 @@ def test_a_low_mark_takes_the_face_of_the_letters_on_its_line():
     assert template.resolve_faces([under], letters + above)[0]["ch"] == "i:_"
 
 
+def test_a_full_stop_takes_the_face_of_its_line_not_an_ascender_from_the_line_below():
+    target.use(target.DEFAULT)
+    em = target.get()["templates"]["px_per_em"] / template.UP
+    word = [dict(bbox=(1000 - int(0.5 * em), 1000, x, x + 50), cx=x + 25, ch="d") for x in (100, 160)]
+    stop = dict(bbox=(990, 1000, 225, 235), cx=230, ch=".", scale=1.0)
+    # an italic l on the next line, 1 em down, whose ascender reaches up into the full stop's band and lies nearest it
+    below = [dict(bbox=(1000 + int(1.0 * em) - int(0.75 * em), 1000 + int(1.0 * em), 222, 240), cx=231, ch="i:l")]
+    assert template.resolve_faces([stop], word + below)[0]["ch"] == "."
+
+
 class Font(dict):
     """The two tables anchor reads, an x-height of 450 units in 1000"""
 

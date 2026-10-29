@@ -375,14 +375,16 @@ def resolve_faces(tied, kept):
     """Gives units whose character is clear but whose face is not (a full stop looks the same in both) the face of the nearest unit on their line
 
     A unit is on the line when its height overlaps the tied unit's widened by 0.3 em either way, so a mark that sits low
-    or high, such as an underscore, still finds the letters beside it. Units with no face-certain unit on their line take
-    the primary face
+    or high, such as an underscore, still finds the letters beside it, and its centre is within 0.6 em of the tied
+    unit's, so the ascender of a letter on the next line, which reaches into that band, is not taken for a neighbour.
+    Units with no face-certain unit on their line take the primary face
     """
     out = []
     for u in tied:
-        pad = 0.3 * target.get()["templates"]["px_per_em"] / UP * u.get("scale", 1.0)
-        y0, y1 = u["bbox"][0] - pad, u["bbox"][1] + pad
-        near = [k for k in kept if k["bbox"][0] < y1 and k["bbox"][1] > y0]
+        em = target.get()["templates"]["px_per_em"] / UP * u.get("scale", 1.0)
+        y0, y1 = u["bbox"][0] - 0.3 * em, u["bbox"][1] + 0.3 * em
+        mid = lambda k: (k["bbox"][0] + k["bbox"][1]) / 2
+        near = [k for k in kept if k["bbox"][0] < y1 and k["bbox"][1] > y0 and abs(mid(k) - mid(u)) <= 0.6 * em]
         face = styles.style_of(min(near, key=lambda k: abs(k["cx"] - u["cx"]))["ch"]) if near else styles.primary()
         out.append(dict(u, ch=styles.key(face, styles.char_of(u["ch"]))))
     return out
