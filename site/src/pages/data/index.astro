@@ -6,7 +6,7 @@ import { cardName, glyphLabel, capital, countWord } from '../../lib/format';
 import { href } from '../../lib/site';
 
 const n = noise(), cal = calibration(), lv = edgeLevels();
-const hist = n.alternative.hist;
+const hist = n.headline.hist;
 const last = hist.counts.reduce((m, c, i) => (c ? i : m), 0);
 const Hn = last + 3, H = { w: 560, h: 240, l: 44, r: 12, t: 12, b: 40 };
 const cmax = Math.max(...hist.counts);
@@ -56,8 +56,8 @@ const sizes: Record<string, string> = {
     <p class="proof">These come from one scanner and {Object.keys(cards()).length} pilot cards. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but does not recover finer detail.</p>
 
     <h2 id="noise">Noise</h2>
-    <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.alternative.pair_rms_um)} µm over {n.alternative.n_pairs} pairs when each scan’s affine is fitted on its own. That gives {fmt(n.alternative.single_scan_um)} µm single-scan noise and {fmt(n.alternative.pair_mean_um)} µm for a pair mean.</p>
-    <p>With scale and shear tied across a card’s two scans the same comparison gives {fmt(n.headline.single_scan_um)} µm and {fmt(n.headline.pair_mean_um)} µm. The untied fit absorbs per-scan placement distortion, which is why the two differ.</p>
+    <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.headline.pair_rms_um)} µm over {n.headline.n_pairs} pairs, with scale and shear tied across a card’s scans. That gives {fmt(n.headline.single_scan_um)} µm single-scan noise and {fmt(n.headline.pair_mean_um)} µm for a pair mean.</p>
+    <p>Fitting each scan’s affine on its own instead gives {fmt(n.alternative.single_scan_um)} µm and {fmt(n.alternative.pair_mean_um)} µm over {n.alternative.n_pairs} pairs.</p>
 
     <figure class="hist-fig">
       <svg class="hist" viewBox={`0 0 ${H.w} ${H.h}`} role="img" aria-labelledby="hs-t hs-d">

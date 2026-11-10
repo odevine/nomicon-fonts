@@ -58,10 +58,10 @@ export interface Card {
 }
 export interface Kern { n: number; designed_gap: number; kern: number; mean_dev_nokern: number; mean_dev_kern: number; sd: number }
 
-/** Noise for the site: the untied fit (each scan's affine on its own) leads, the tied fit sits beside it */
+/** Noise for the site: the tied fit (scale and shear shared by a card's scans) leads, the untied fit sits beside it */
 export function noisePair() {
   const n = noise();
-  return { lead: n.alternative, tied: n.headline };
+  return { lead: n.headline, untied: n.alternative };
 }
 
 export function edgeLevels() {

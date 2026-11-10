@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const s = read('steps/e.json');
-const noise = read('noise.json').alternative;
+const noise = read('noise.json').headline;
 
 test('the Scan to Glyph sequence has ten steps with working images and passes axe', async ({ page }) => {
   const bad: string[] = [];

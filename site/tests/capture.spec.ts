@@ -37,13 +37,13 @@ test('the bench shows the scale, the edge widths and a tone curve that follows t
 });
 
 test('the noise histogram adds up to the pairs, lives on the data page, and the Capture page quotes the headline noise', async ({ page }) => {
-  const h = noise.alternative.hist;
+  const h = noise.headline.hist;
   expect(h.counts.reduce((a: number, b: number) => a + b, 0) + h.over).toBe(h.n);
-  expect(h.n).toBe(noise.alternative.n_pairs);
-  expect(h.rms_um).toBeCloseTo(noise.alternative.pair_rms_um, 2);
+  expect(h.n).toBe(noise.headline.n_pairs);
+  expect(h.rms_um).toBeCloseTo(noise.headline.pair_rms_um, 2);
   await page.goto('/capture/');
-  await expect(page.locator('main')).toContainText(`${noise.alternative.single_scan_um.toFixed(1)} µm`);
-  await expect(page.locator('main')).toContainText(`${noise.alternative.pair_mean_um.toFixed(1)} µm`);
+  await expect(page.locator('main')).toContainText(`${noise.headline.single_scan_um.toFixed(1)} µm`);
+  await expect(page.locator('main')).toContainText(`${noise.headline.pair_mean_um.toFixed(1)} µm`);
   expect(await page.locator('.hist').count()).toBe(0);
   await page.goto('/data/');
   await expect(page.locator('.hist .bar')).toHaveCount(h.counts.filter((c: number) => c > 0).length);
