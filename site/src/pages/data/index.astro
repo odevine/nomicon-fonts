@@ -53,7 +53,7 @@ const sizes: Record<string, string> = {
         <li><span class="big"><a href={to.startsWith('#') ? to : href(to)}>{big}</a></span><span class="cap">{cap}</span></li>
       ))}
     </ul>
-    <p class="proof">These come from one scanner and {Object.keys(cards()).length} pilot cards. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but does not recover finer detail.</p>
+    <p class="proof">These come from one scanner and {Object.keys(cards()).length} cards. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but does not recover finer detail.</p>
 
     <h2 id="noise">Noise</h2>
     <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.headline.pair_rms_um)} µm over {n.headline.n_pairs} pairs, with scale and shear tied across a card’s scans. That gives {fmt(n.headline.single_scan_um)} µm single-scan noise and {fmt(n.headline.pair_mean_um)} µm for a pair mean.</p>
@@ -139,7 +139,7 @@ const sizes: Record<string, string> = {
     </div>
 
     <h2 id="limits">Limits</h2>
-    <p>One scanner. {capital(countWord(Object.keys(cards()).length))} pilot cards. Optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement. Stack-against-design numbers depend on one fitted outline.</p>
+    <p>One scanner. {capital(countWord(Object.keys(cards()).length))} cards. Optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement. Stack-against-design numbers depend on one fitted outline.</p>
   </article>
 </Page>
 <style is:global>
