@@ -22,8 +22,8 @@ from matplotlib.path import Path as Poly
 
 PAGE_MM = (215.9, 279.4)
 CARD_MM = (63.5, 88.9)
-# each jig in the four quarter turns gives 16 angles 22.5 degrees apart
-ANGLES = (0, 22.5, 45, 67.5)
+# the 0 degree jig in two corners of the bed gives the 0 and 90 degree scans
+ANGLES = (0,)
 # unprinted border along the sheet's edges, wide enough for printers that cannot print near the edge
 MARGIN_MM = 15
 # a notch corner sits at least this far inside the margin, leaving a strip of card stock and room for the corner arrow

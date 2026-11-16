@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const e = JSON.parse(readFileSync('data/glyphs/e.json', 'utf8'));
 
@@ -65,9 +65,10 @@ test('the glyph map links every glyph and groups the italic face under its own h
 // the glyphs page is a character sheet of GF Latin Core, less the spaces and combining accents
 const core: { codepoints: number[] } = JSON.parse(readFileSync('src/lib/latin-core.json', 'utf8'));
 const sheetRows: { char: string; style: string; low_confidence: boolean }[] = JSON.parse(readFileSync('data/glyphs.json', 'utf8'));
+const sheetBuilt: { char: string; style: string }[] = existsSync('data/built.json') ? JSON.parse(readFileSync('data/built.json', 'utf8')) : [];
 const sheetSize = new Set([...core.codepoints.map((c) => String.fromCodePoint(c)).filter((ch) => !/^(\p{Zs}|\p{Mn})$/u.test(ch)), ...sheetRows.map((r) => r.char)]).size;
 
-test('the glyphs page is a character sheet with an empty box for each character not scanned yet', async ({ page }) => {
+test('the glyphs page is a character sheet with a box for each character built from the measuring stick or not scanned yet', async ({ page }) => {
   await page.goto('/glyphs/');
   const faces = ['regular', 'italic'].filter((f) => sheetRows.some((r) => r.style === f));
   const sections = page.locator('section.face');
@@ -76,7 +77,10 @@ test('the glyphs page is a character sheet with an empty box for each character 
     const scanned = sheetRows.filter((r) => r.style === faces[i]).length;
     await expect(sections.nth(i).locator('.glyphmap li')).toHaveCount(sheetSize);
     await expect(sections.nth(i).locator('.glyphmap a')).toHaveCount(scanned);
-    await expect(sections.nth(i).locator('.glyphmap li.blank')).toHaveCount(sheetSize - scanned);
+    const chars = new Set(sheetRows.filter((r) => r.style === faces[i]).map((r) => r.char));
+    const built = sheetBuilt.filter((b) => b.style === faces[i] && !chars.has(b.char) && !/^\p{Mn}$/u.test(b.char)).length;
+    await expect(sections.nth(i).locator('.glyphmap li.built')).toHaveCount(built);
+    await expect(sections.nth(i).locator('.glyphmap li.blank')).toHaveCount(sheetSize - scanned - built);
   }
   await expect(page.locator('.glyphmap a.low')).toHaveCount(sheetRows.filter((r) => r.low_confidence).length);
   // a tile carries only its count, so none can wrap out of line with the rest

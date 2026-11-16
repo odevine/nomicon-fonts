@@ -283,6 +283,8 @@ def export_pairs(S, out, chars):
     d.mkdir(parents=True, exist_ok=True)
     for ch in chars:
         rows = [(k, r) for k, r in enumerate(S.instance_rows(ch)) if has_pair(S, r) and r["pair_dev_um"] is not None]
+        if not rows:
+            continue
         med = float(np.median([r["pair_dev_um"] for _, r in rows]))
         k, row = min(rows, key=lambda kr: abs(kr[1]["pair_dev_um"] - med))
         (sp, kp), (sl, kl) = unit_pair(S, row)
@@ -302,7 +304,7 @@ def export(session, scans_dir, out, chars=None):
     """Writes steps/ and pixels/ under out, from a session folder and the folder holding its scan PNGs"""
     S = Session(session, scans_dir)
     assert S.man["noise"]["tied"], "the step images rebuild the tied rectification, run with the tied session"
-    p_by_char = {c: v["p"] for c, v in S.traces.items()}
+    p_by_char = {c: v["p"] for c, v in S.traces.items() if not v.get("built")}
     asp = S.man["aspect"]
     chars = [c for c in (chars or p_by_char) if c in p_by_char]
     with timed("step images"):

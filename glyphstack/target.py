@@ -12,6 +12,8 @@ from pathlib import Path
 BUILTIN = Path(__file__).parent / "profiles"
 DEFAULT = "rules"
 SECTIONS = ("paper", "segment", "templates", "geometry", "stack", "fit", "site")
+# sections a profile may leave out, read with their defaults
+OPTIONAL = ("texture",)
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,18 @@ def load(spec=DEFAULT):
     lo, hi = d["paper"]["coverage_clip"]
     if not 0 <= lo < hi <= 1:
         raise ValueError(f"{path}: coverage_clip is a floor and a ceiling with 0 <= floor < ceiling <= 1")
-    return Profile(d["name"], str(path), hashlib.sha256(raw).hexdigest(), faces, regions, {s: d[s] for s in SECTIONS})
+    if d["templates"].get("scale_search", "top") not in ("top", "count"):
+        raise ValueError(f"{path}: templates scale_search is top or count")
+    if "texture" in d:
+        from .texture import DEFAULTS
+        unknown = sorted(set(d["texture"]) - set(DEFAULTS))
+        if unknown:
+            raise ValueError(f"{path}: unknown texture settings {', '.join(unknown)}")
+        lo, hi = d["texture"].get("descreen_contrast", DEFAULTS["descreen_contrast"])
+        if not 0 <= lo < hi:
+            raise ValueError(f"{path}: descreen_contrast is a low and a high contrast with 0 <= low < high")
+    settings = {s: d[s] for s in SECTIONS} | {s: d[s] for s in OPTIONAL if s in d}
+    return Profile(d["name"], str(path), hashlib.sha256(raw).hexdigest(), faces, regions, settings)
 
 
 _current = None

@@ -20,8 +20,14 @@ def bed(dtype=np.uint8, turn=0):
     return (np.clip(g, 0, 1) * top).astype(dtype)
 
 
-def run(table, out):
-    subprocess.run([sys.executable, "-m", "glyphstack.prepare", str(table), "-o", str(out), "--margin", "40", "--workers", "1"], cwd=ROOT, check=True, capture_output=True)
+def cards_file(path, scans):
+    """A cards file with one card X scanned as the given (file, angle) pairs"""
+    path.write_text(json.dumps(dict(cards=[dict(id="X", name="X", text=dict(rules=["Draw a card."]), scans=[dict(file=f, angle=a) for f, a in scans])])))
+    return path
+
+
+def run(cards, out):
+    subprocess.run([sys.executable, "-m", "glyphstack.prepare", str(cards), "-o", str(out), "--margin", "40", "--workers", "1"], cwd=ROOT, check=True, capture_output=True)
     return json.loads((out / "prepare.json").read_text())
 
 
@@ -32,8 +38,7 @@ def test_crops_keep_pixels_format_and_provenance(tmp_path):
     Image.fromarray(gray).convert("P").save(src / "a.png")
     rgb16 = np.repeat(bed(np.uint16, turn=30)[..., None], 3, 2)
     cv2.imwrite(str(src / "b.tif"), rgb16)
-    (src / "t.csv").write_text("file,card,angle\na.png,X,0\nb.tif,X,30\n")
-    man = run(src / "t.csv", tmp_path / "out")
+    man = run(cards_file(src / "cards.json", [("a.png", 0), ("b.tif", 30)]), tmp_path / "out")
 
     a, b = man["scans"]
     x, y, w, h = a["crop"]
@@ -49,15 +54,16 @@ def test_crops_keep_pixels_format_and_provenance(tmp_path):
     assert w > 800 and h > 900
 
     assert len(a["source_sha256"]) == 64 and a["source_bytes"] == (src / "a.png").stat().st_size
-    assert (tmp_path / "out" / "t.csv").read_text().splitlines()[1:] == ["a.png,X,0", "b.tif,X,30"]
+    copy = json.loads((tmp_path / "out" / "cards.json").read_text())["cards"][0]
+    assert copy["scans"] == [dict(file="a.png", angle=0), dict(file="b.tif", angle=30)] and copy["text"] == dict(rules=["Draw a card."])
 
 
 def test_rerun_keeps_unchanged_crops(tmp_path):
     src = tmp_path / "raw"
     src.mkdir()
     Image.fromarray(bed()).save(src / "a.png")
-    (src / "t.csv").write_text("file,card,angle\na.png,X,0\n")
-    run(src / "t.csv", tmp_path / "out")
+    cards_file(src / "cards.json", [("a.png", 0)])
+    run(src / "cards.json", tmp_path / "out")
     first = (tmp_path / "out" / "a.png").stat().st_mtime_ns
-    run(src / "t.csv", tmp_path / "out")
+    run(src / "cards.json", tmp_path / "out")
     assert (tmp_path / "out" / "a.png").stat().st_mtime_ns == first

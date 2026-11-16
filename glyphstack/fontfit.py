@@ -1,16 +1,24 @@
 """Fits a designed outline to a stacked glyph as a measuring stick, and traces the stack to Bezier paths in font units"""
+import os
+
 import cv2
 import numpy as np
 import potrace
+from scipy.ndimage import gaussian_filter
 from scipy.optimize import least_squares
 from scipy.spatial import cKDTree
+from scipy.special import ndtr
 
 from . import font as fnt
-from . import styles, target
-from .contours import UM_PER_PX, contours_at, sym_dev
+from . import build, styles, target
+from .contours import UM_PER_PX, contours_at, edge_rms_um, sym_dev
+from .log import pool
 
 NAMES = ["s", "ar", "th", "tx", "ty", "d"]
 FIXED_BOUNDS = dict(ar=(0.9, 1.1), th=(-0.05, 0.05), tx=(-1e4, 1e4), ty=(-1e4, 1e4), d=(-1, 8))
+# blur widths in grid px tried for the print's rounding, and the distance field band that keeps the widest exact
+ROUNDING = (0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 16.0)
+LOOK_BAND = 48
 
 
 def bounds():
@@ -21,10 +29,14 @@ def bounds():
 class FontGlyph:
     """A designed outline as dense polylines in font units with its advance width"""
 
-    def __init__(self, font, ch, spacing=1.0):
-        contours, _ = fnt.glyph_contours(font, ch)
+    def __init__(self, font, ch, spacing=1.0, name=None):
+        stem = styles.STEMS.get(ch) if name is None and ord(ch) not in font.getBestCmap() else None
+        contours, name = fnt.glyph_contours(font, stem or ch, name)
+        if stem:
+            # a dotless letter the font does not draw is its dotted letter less the topmost contour, the dot
+            contours = [c for c in contours if c is not max(contours, key=lambda c: c[:, 1].min())]
         self.contours = fnt.densify(contours, spacing)
-        self.adv = font["hmtx"][font.getBestCmap()[ord(ch)]][0]
+        self.adv = font["hmtx"][name][0]
 
     def to_img(self, prm):
         s, ar, th, tx, ty = prm[:5]
@@ -133,6 +145,59 @@ def edge_stats(g, p, mean, contour, sd=None):
     return rms, float((si & fi).sum() / (si | fi).sum())
 
 
+def blur(sd, r):
+    return sd if r == 0 else gaussian_filter(sd, r)
+
+
+def print_look(g, p, mean, near=10):
+    """The ink spread d, edge width w and rounding r in grid px that render the placed outline closest to a stack's coverage near its edge
+
+    Rounding blurs the outline's distance field before the edge is drawn, which rounds corners and thins strokes
+    narrower than the blur as the print does
+    """
+    sd = placed_distance(g, p, mean.shape, LOOK_BAND)
+    band = np.abs(sd - p[5]) < near
+    best = None
+    for r in ROUNDING:
+        f, m = blur(sd, r)[band], mean[band]
+        sol = least_squares(lambda v: ndtr((v[0] - f) / v[1]) - m, [p[5], 2.0], bounds=([-4, 0.4], [12, 10]))
+        if best is None or sol.cost < best[0]:
+            best = (sol.cost, dict(d=float(sol.x[0]), w=float(sol.x[1]), r=r))
+    return best[1]
+
+
+def face_look(looks):
+    """One look for a face, the median of its glyphs' spread, edge width and rounding"""
+    return {k: float(np.median([lk[k] for lk in looks])) for k in ("d", "w", "r")}
+
+
+def render(g, p, shape, look):
+    """The placed outline as coverage on a stack's grid, drawn with a print look"""
+    return ndtr((look["d"] - blur(placed_distance(g, p, shape, LOOK_BAND), look["r"])) / look["w"]).astype(np.float32)
+
+
+def with_prior(g, p, mean, n, look, weight):
+    """A stack of n instances blended with the measuring stick's outline rendered as the print would show it, which counts as weight instances"""
+    return ((n * mean + weight * render(g, p, mean.shape, look)) / (n + weight)).astype(np.float32)
+
+
+def from_outline(g, p, look):
+    """The outline rendered with a print look on a grid of its own, and the placement that maps that grid to font units"""
+    p = np.array(p, float)
+    p[3] = p[4] = 0.0
+    pts = np.vstack(g.to_img(p))
+    margin = LOOK_BAND
+    p[3], p[4] = margin - pts[:, 0].min(), margin - pts[:, 1].min()
+    shape = tuple(int(np.ceil(v)) + 2 * margin for v in (np.ptp(pts[:, 1]), np.ptp(pts[:, 0])))
+    return render(g, p, shape, look), p
+
+
+def traced_outline(g, p, look):
+    """The trace of an outline drawn with a print look, its node and contour counts and the placement it was traced at"""
+    mean, p = from_outline(g, p, look)
+    return trace(mean, p) + (p.tolist(),)
+
+
 def to_font_units(q, p):
     """Maps points in the stack's grid coordinates to font units, y down, origin at the glyph origin"""
     s, ar, th, tx, ty = p[:5]
@@ -144,7 +209,11 @@ def trace(mean, p):
     """Potrace Bezier fit of the 0.5 contour of a stack as SVG path strings in font units, y down, and a node count"""
     big = cv2.resize(mean, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     # potrace traces the True region, so the ink (coverage above 0.5) is the complement
-    paths = potrace.Bitmap(big <= 0.5).trace(turdsize=40, turnpolicy=potrace.POTRACE_TURNPOLICY_MINORITY, alphamax=1.0, opticurve=True, opttolerance=0.6)
+    try:
+        paths = potrace.Bitmap(big <= 0.5).trace(turdsize=40, turnpolicy=potrace.POTRACE_TURNPOLICY_MINORITY, alphamax=1.0, opticurve=True, opttolerance=0.6)
+    except ValueError:
+        # the curve optimisation can take the square root of a negative on rare shapes, which leaves its curves unjoined
+        paths = potrace.Bitmap(big <= 0.5).trace(turdsize=40, turnpolicy=potrace.POTRACE_TURNPOLICY_MINORITY, alphamax=1.0, opticurve=False)
     s, ar, th, tx, ty = p[:5]
     Mi = np.linalg.inv(np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]]) @ np.diag([s, s * ar]))
 
@@ -175,11 +244,16 @@ def face_transform(shared, primary, other):
     return p
 
 
-def fit_all(fonts, stacks, min_n=12):
+def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
     """Shared transform from the profile's seed glyph, then a translation-only placement, trace and statistics for each glyph with min_n instances
 
     fonts is {face: font}, a bare font counts as the primary face. Glyph keys come from `styles`, and a glyph of
-    another face is placed with the shared transform scaled to that font's units per em
+    another face is placed with the shared transform scaled to that font's units per em. Each face's print look is
+    the median of its traced glyphs'. With the profile's fit prior_weight set, a glyph with fewer than min_n
+    instances is traced from its stack blended with its outline drawn with that look, and records that it leans on
+    the prior and how far the blend moved from its own stack. Each of `chars` with no stack is built as the face's
+    measuring stick makes it, a composite from its parts' entries at the font's component offsets and any other
+    from its outline drawn with the look, and records how it was built
     """
     first = styles.primary()
     if not isinstance(fonts, dict):
@@ -190,18 +264,62 @@ def fit_all(fonts, stacks, min_n=12):
         raise SystemExit(f"the seed glyph {seed!r} has no stack, so the shared transform cannot be fitted")
     shared = shared_transform(reg, stacks[seed]["mean"])
     per_style = {st: shared if st == first else face_transform(shared, reg, f) for st, f in fonts.items()}
-    out = {}
+    weight = target.get()["fit"].get("prior_weight")
+    out, placed = {}, {}
     for key, s in stacks.items():
         st, ch = styles.style_of(key), styles.char_of(key)
         font = fonts.get(st)
-        if font is None or s["n"] < min_n or ord(ch) not in font.getBestCmap():
+        if font is None or (s["n"] < min_n and not weight) or not styles.drawn_by(font, ch):
             continue
         g = FontGlyph(font, ch)
         contour = contours_at(s["mean"], 0.5)
         if not contour:
             continue
-        p = fit(g, np.vstack(contour), init_translation(g, np.vstack(contour), per_style[st]), ["tx", "ty"])
-        rms, iou = edge_stats(g, p, s["mean"], contour)
-        path, nodes, nc = trace(s["mean"], p)
-        out[key] = dict(trace=path, adv=g.adv, n=s["n"], ncards=len(s["cards"]), rms=rms, iou=iou, nodes=nodes, nc=nc, p=p.tolist())
+        placed[key] = (g, fit(g, np.vstack(contour), init_translation(g, np.vstack(contour), per_style[st]), ["tx", "ty"]))
+    # of the characters with no stack, the composites are built from their parts, and the parts and the rest from their outlines
+    composites, whole = [], {}
+    for st, font in fonts.items():
+        for ch in chars:
+            if styles.key(st, ch) in placed:
+                continue
+            ps = build.parts(font, ch)
+            if ps:
+                composites.append((st, ch, ps))
+                for c, name, _ in ps:
+                    whole[(st, c, None if c else name)] = None
+            elif styles.drawn_by(font, ch):
+                whole[(st, ch, None)] = None
+    todo = {t: FontGlyph(fonts[t[0]], t[1] or "", name=t[2]) for t in whole if not (t[1] and styles.key(t[0], t[1]) in placed)}
+    todo = {t: g for t, g in todo.items() if g.contours}
+    with pool(workers or os.cpu_count() or 1) as ex:
+        well = [k for k in placed if stacks[k]["n"] >= min_n]
+        futs = {k: ex.submit(print_look, *placed[k], stacks[k]["mean"]) for k in well}
+        looks = {}
+        for k in well:
+            looks.setdefault(styles.style_of(k), []).append(futs[k].result())
+        face = {st: face_look(lk) for st, lk in looks.items()}
+        for st in fonts:
+            face.setdefault(st, face.get(first))
+        built = {t: ex.submit(traced_outline, g, per_style[t[0]], face[t[0]]) for t, g in todo.items() if face[t[0]]}
+        for key, (g, p) in placed.items():
+            s = stacks[key]
+            mean, extra = s["mean"], {}
+            if s["n"] < min_n:
+                mean = with_prior(g, p, s["mean"], s["n"], face[styles.style_of(key)], weight)
+                extra = dict(prior=True, prior_weight=weight, moved_um=edge_rms_um(mean, s["mean"]))
+            contour = contours_at(mean, 0.5)
+            rms, iou = edge_stats(g, p, mean, contour)
+            path, nodes, nc = trace(mean, p)
+            out[key] = dict(trace=path, adv=g.adv, n=s["n"], ncards=len(s["cards"]), rms=rms, iou=iou, nodes=nodes, nc=nc, p=p.tolist(), **extra)
+        named = {}
+        for (st, c, name), f in built.items():
+            path, nodes, nc, p = f.result()
+            k = styles.key(st, c) if c else None
+            named[(st, c, name)] = e = dict(trace=path, adv=todo[(st, c, name)].adv, n=stacks[k]["n"] if k in stacks else 0, nodes=nodes, nc=nc, p=p, built="outline", look=face[st])
+            if k:
+                out[k] = e
+    for st, ch, ps in composites:
+        pieces = [out.get(styles.key(st, c)) if c else named.get((st, None, name)) for c, name, _ in ps]
+        if all(pieces):
+            out[styles.key(st, ch)] = build.compose(fonts[st], ch, ps, pieces)
     return shared, out

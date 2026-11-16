@@ -1,12 +1,11 @@
-"""Crops each scan in a scan table to its card plus a margin, so later runs read and store only the card
+"""Crops each scan in a cards file to its card plus a margin, so later runs read and store only the card
 
 The crop slices whole pixels and keeps the file's format and bit depth, so the cropped scan holds exactly the
 pixels of the original card region. Originals are never changed. The output folder gets the cropped scans under
-their original names, a scan table pointing at them and `prepare.json`, which records each original's sha256,
+their original names, a cards file pointing at them and `prepare.json`, which records each original's sha256,
 size and the crop box in its pixels, so every cropped scan can be traced back to the file it came from
 """
 import argparse
-import csv
 import hashlib
 import json
 import os
@@ -17,6 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from . import cards as cardfile
 from .log import Progress, add_args, announce, log, pool, start
 from .scan import load_gray
 from .units import card_crop
@@ -70,21 +70,22 @@ def prepare_one(src, dst, margin):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("table", help="scan table CSV, file paths relative to it")
-    ap.add_argument("-o", "--out", required=True, help="folder for the cropped scans, their scan table and prepare.json")
+    ap.add_argument("cards", help="cards file, scan paths relative to it")
+    ap.add_argument("-o", "--out", required=True, help="folder for the cropped scans, their cards file and prepare.json")
     ap.add_argument("--margin", type=int, default=MARGIN_PX, help="pixels kept around the card on each side")
     ap.add_argument("--workers", type=int, help="processes, default one per core")
     add_args(ap)
     a = ap.parse_args()
-    table, out = Path(a.table), Path(a.out)
+    src_file, out = Path(a.cards), Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     start(a, out, "prepare")
-    rows = list(csv.DictReader(table.open()))
+    cards = cardfile.load(src_file)
+    rows = [s for c in cards for s in c["scans"]]
     man_path = out / "prepare.json"
     done = {r["file"]: r for r in json.loads(man_path.read_text())["scans"]} if man_path.exists() else {}
     jobs = []
     for r in rows:
-        src = table.parent / r["file"]
+        src = r["path"]
         dst = out / src.name
         prev = done.get(dst.name)
         # a scan cropped before with the same margin from an unchanged original is kept
@@ -92,23 +93,19 @@ def main():
             continue
         jobs.append((src, dst))
     if len({d.name for _, d in jobs}) != len(jobs):
-        raise SystemExit("two scans in the table share a file name, the cropped copies would overwrite each other")
-    log.info("%d scans in the table, %d to crop", len(rows), len(jobs))
+        raise SystemExit("two scans in the cards file share a file name, the cropped copies would overwrite each other")
+    log.info("%d scans in the cards file, %d to crop", len(rows), len(jobs))
     prog = Progress("cropping", len(jobs), every=5)
     with pool(a.workers or os.cpu_count()) as ex:
         for f in as_completed([ex.submit(prepare_one, s, d, a.margin) for s, d in jobs]):
             r = f.result()
             done[r["file"]] = r
             prog.step(f"{r['file']}, {r['source_bytes'] / 1e6:.0f} MB to {r['bytes'] / 1e6:.0f} MB")
-    scans = [done[(table.parent / r["file"]).name] for r in rows]
-    man_path.write_text(json.dumps(dict(table=str(table), margin_px=a.margin, scans=scans), indent=1))
-    with (out / table.name).open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0]))
-        w.writeheader()
-        for r in rows:
-            w.writerow(dict(r, file=Path(r["file"]).name))
+    scans = [done[r["path"].name] for r in rows]
+    man_path.write_text(json.dumps(dict(cards=str(src_file), margin_px=a.margin, scans=scans), indent=1))
+    cardfile.write(out / src_file.name, [dict(c, scans=[dict(s, file=s["path"].name) for s in c["scans"]]) for c in cards])
     before, after = sum(s["source_bytes"] for s in scans), sum(s["bytes"] for s in scans)
-    announce("wrote %s: %d scans, %.1f GB to %.1f GB, scan table %s", out, len(scans), before / 1e9, after / 1e9, out / table.name)
+    announce("wrote %s: %d scans, %.1f GB to %.1f GB, cards file %s", out, len(scans), before / 1e9, after / 1e9, out / src_file.name)
 
 
 if __name__ == "__main__":

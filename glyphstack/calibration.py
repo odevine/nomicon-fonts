@@ -18,6 +18,8 @@ TONE_STEPS = 11
 TONE_STEP_MM = (4, 6)
 SQUARE_MM = (8, 25)
 UM_PER_PX = 25400 / 1200
+# width in px of the stretches a ruler's baseline is first traced over
+BASE_STEP = 100
 
 
 def ink_components(g, thresh=128):
@@ -50,16 +52,25 @@ def measure_ruler(g, bbox, vertical, pad=60):
     d = 255 - g[y - pad : y + h + pad, x - pad : x + w + pad].astype(np.float32)
     if vertical:
         d = d.T
-    W = d.shape[1]
-    r0 = int(np.argmax(d.sum(1)))
-    # the ticks hang off one side of the baseline, flip so they are always below it
-    if d[max(r0 - 60, 0) : r0 - 15].sum() > d[r0 + 15 : r0 + 60].sum():
+    H, W = d.shape
+    # a coarse baseline from the darkest row of each stretch, so a sheet sitting a degree or so askew still keeps it in view
+    mids = np.arange(BASE_STEP // 2, W - BASE_STEP // 2, BASE_STEP)
+    rows = np.array([np.argmax(d[:, m - BASE_STEP // 2 : m + BASE_STEP // 2].sum(1)) for m in mids], float)
+    coarse = np.polyfit(mids, rows, 1)
+    keep = np.abs(rows - np.polyval(coarse, mids)) < 6
+    coarse = np.polyfit(mids[keep], rows[keep], 1)
+    r = np.rint(np.polyval(coarse, np.arange(W))).astype(int)
+    cols = np.arange(W)
+    band = lambda lo, hi: np.stack([d[np.clip(r + k, 0, H - 1), cols] for k in range(lo, hi)])
+    # the ticks hang off one side of the baseline, flip so they are always below it, judged on ink so grey paper cannot tip it
+    if (band(-60, -15) > 128).sum() > (band(15, 60) > 128).sum():
         d = d[::-1]
-        r0 = int(np.argmax(d.sum(1)))
+        r = H - 1 - r
     cov = d / (255 - 9.0)
     xs = np.arange(80, W - 80)
     ey = []
     for xx in xs:
+        r0 = r[xx]
         col = cov[r0 - 25 : r0 + 6, xx]
         k = np.nonzero(col >= 0.5)[0]
         if not len(k) or k[0] == 0:

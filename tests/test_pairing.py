@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -27,18 +29,32 @@ def test_each_glyph_of_the_second_scan_used_once():
     assert len({kb for _, kb in pairs}) == len(pairs)
 
 
-def test_scan_table_reads_angles(tmp_path):
-    from glyphstack.session import read_table
+def test_cards_file_lists_every_scan_with_its_angle(tmp_path):
+    from glyphstack.session import read_scans
 
-    t = tmp_path / "t.csv"
-    t.write_text("file,card,angle,notes\na.png,X,15,\nb.png,X,105,slipped once\nc.png,X,0,\n")
-    assert [(r[0].name, r[1], r[2]) for r in read_table(t)] == [("a.png", "X", 15.0), ("b.png", "X", 105.0), ("c.png", "X", 0.0)]
+    t = tmp_path / "cards.json"
+    t.write_text(json.dumps(dict(cards=[dict(id="X", name="X", scans=[dict(file="a.png", angle=15), dict(file="b.png", angle=105, notes="slipped once"), dict(file="c.png", angle=0)])])))
+    assert [(r[0].name, r[1], r[2]) for r in read_scans(t)] == [("a.png", "X", 15.0), ("b.png", "X", 105.0), ("c.png", "X", 0.0)]
 
 
-def test_scan_table_needs_an_angle_for_every_scan(tmp_path):
-    from glyphstack.session import read_table
+def test_cards_file_needs_an_angle_for_every_scan_and_a_plain_id(tmp_path):
+    from glyphstack.session import read_scans
 
-    t = tmp_path / "t.csv"
-    t.write_text("file,card,angle\na.png,X,0\nb.png,X,\n")
+    t = tmp_path / "cards.json"
+    t.write_text(json.dumps(dict(cards=[dict(id="X", scans=[dict(file="a.png", angle=0), dict(file="b.png")])])))
     with pytest.raises(SystemExit, match="b.png"):
-        read_table(t)
+        read_scans(t)
+    t.write_text(json.dumps(dict(cards=[dict(id="Reef Worm", scans=[dict(file="a.png", angle=0)])])))
+    with pytest.raises(SystemExit, match="Reef Worm"):
+        read_scans(t)
+
+
+def test_cards_file_text_lists_rules_and_flavor_paragraphs(tmp_path):
+    from glyphstack import cards
+
+    t = tmp_path / "cards.json"
+    t.write_text(json.dumps(dict(cards=[dict(id="X", text=dict(rules=["Flying"], flavor=["“Wark?”"]), scans=[dict(file="a.png", angle=0)])])))
+    assert cards.paragraphs(cards.load(t)[0]["text"]) == [("Flying", False), ("“Wark?”", True)]
+    t.write_text(json.dumps(dict(cards=[dict(id="X", text="Rules:\nFlying", scans=[dict(file="a.png", angle=0)])])))
+    with pytest.raises(SystemExit, match="rules and flavor"):
+        cards.load(t)

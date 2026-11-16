@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(process.cwd(), 'data');
@@ -6,8 +6,11 @@ const read = (f: string) => JSON.parse(readFileSync(resolve(root, f), 'utf8'));
 
 export const fileSize = (f: string) => statSync(resolve(root, f)).size;
 export const glyphs = (): GlyphRow[] => read('glyphs.json');
+// data exported before glyphs were built from the measuring stick has no built.json
+export const built = (): BuiltRow[] => (existsSync(resolve(root, 'built.json')) ? read('built.json') : []);
 export const glyph = (name: string): GlyphDoc => read(`glyphs/${name}.json`);
 export const sweepOf = (name: string): Sweep => read(`sweep/${name}.json`);
+export const hasPair = (name: string) => existsSync(resolve(root, `noise/${name}.json`));
 export const pairInfo = (name: string): PairInfo => read(`noise/${name}.json`);
 export const noise = (): Noise => read('noise.json');
 export const calibration = (): Calibration => read('calibration.json');
@@ -23,10 +26,18 @@ export interface GlyphRow {
   n: number; cards: number; nodes: number; edge_rms_um: number; iou: number;
   recommended_n: number; low_confidence: boolean;
 }
+/** A glyph with no stack to trace, built as the measuring stick builds it: its outline drawn with its face's print look in grid px, or composed from parts. It has no trace, which would put the font in the site's data */
+export interface BuiltRow {
+  name: string; char: string; unicode: string; style: string; source: 'outline' | 'composed' | 'derived'; n: number;
+  look?: { d: number; w: number; r: number };
+  parts?: { char: string | null; glyph: string; source: string }[];
+}
 export interface GlyphDoc extends Omit<GlyphRow, 'cards' | 'source'> {
   adv: number; cards: string[]; trace: string; instances_total: number; instances_exported: number;
   trace_by_n: { n: number; cards: number; trace: string; nodes: number; edge_rms_um: number | null }[];
   mean: Record<string, string>; cutaways: { path: string; radius: number; deviation_um: number }[];
+  /** set when the glyph has too few instances to trace alone and its stack was blended with its outline */
+  prior?: boolean; prior_weight?: number; moved_um?: number;
 }
 export interface Sweep { rows: { n: number; rms_vs_ref_um: number; p10: number; p90: number; noise_model_um: number }[]; recommended_n: number; instances_swept?: number }
 interface NoisePair { hist: Hist; n_pairs: number; pair_rms_um: number; single_scan_um: number; pair_mean_um: number; tied: boolean; note: string }
@@ -47,10 +58,10 @@ export interface Card {
 }
 export interface Kern { n: number; designed_gap: number; kern: number; mean_dev_nokern: number; mean_dev_kern: number; sd: number }
 
-/** Noise for the site: the untied fit (each scan's affine on its own) leads, the tied fit sits beside it */
+/** Noise for the site: the tied fit (scale and shear shared by a card's scans) leads, the untied fit sits beside it */
 export function noisePair() {
   const n = noise();
-  return { lead: n.alternative, tied: n.headline };
+  return { lead: n.headline, untied: n.alternative };
 }
 
 export function edgeLevels() {

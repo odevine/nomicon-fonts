@@ -125,3 +125,11 @@ def test_banded_distance_matches_the_full_field_near_the_outline():
     near = np.abs(full) < 12
     assert np.allclose(band[near], full[near])
     assert ((band <= p[5]) == (full <= p[5])).mean() > 0.999
+
+
+def test_the_sweep_grid_never_samples_more_instances_than_there_are():
+    from glyphstack import sweep
+
+    for n in range(1, 400):
+        g = sweep.grid(n)
+        assert g[-1] == n and all(k <= n for k in g) and g == sorted(set(g))

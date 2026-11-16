@@ -418,21 +418,27 @@ def _compose(view, group):
     return (oy + gy, ox + gx), w
 
 
-def _card_fuse(scans, M_tie, groups, sizes, places, areas, folder):
+def _card_fuse(scans, M_tie, groups, sizes, places, areas, folder, level_glyphs=None):
     """Stage C for one card: every view rendered through both shifts, the card's per-scan edge levels, and each printed glyph's fused instance
 
     places is {glyph: [[(offset, shift) per view] per printed glyph]} composed from stages A and B. Each scan's level
-    is the median over its views of the coverage level that gives the view its glyph's ink area. Fused instances, the
+    is the median over its views of the coverage level that gives the view its glyph's ink area, over the glyphs in
+    level_glyphs when given, so glyphs with few instances do not move it. Fused instances, the
     mean of each printed glyph's views remapped by their scan's level, go to folder/<glyph>/inst. Returns the levels
     and {glyph: [view against view deviation per printed glyph]}
     """
     render = lambda ch, nk, pl: render_view(scans, nk, M_tie[nk[0]], sizes[ch], *pl)
     per_scan = defaultdict(list)
     for ch, gs in groups.items():
+        if level_glyphs is not None and ch not in level_glyphs:
+            continue
         jobs = [(nk, pl) for keys, pls in zip(gs, places[ch]) for nk, pl in zip(keys, pls)]
         for (nk, _), t in zip(jobs, pmap(lambda j: level_for_area(render(ch, *j), areas[ch]), jobs)):
             per_scan[nk[0]].append(t)
     levels = {n: float(np.median(v)) for n, v in per_scan.items()}
+    # a scan with no well-sampled glyph keeps its coverage as read, level 0.5 leaving remap unchanged
+    for n in scans:
+        levels.setdefault(n, 0.5)
 
     def fuse(ch, keys, pls):
         views = [render(ch, nk, pl) for nk, pl in zip(keys, pls)]
@@ -475,13 +481,16 @@ def _map(fn, tasks, workers, label):
     return out
 
 
-def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None):
+def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, workers=None, min_units=None, few=True):
     """Runs the full stacking over {scan name: {units, scale, card, angle}}
 
     Returns {"stacks": {char: {...}}, "levels": {scan: level}, "aspect": float, "scans": per-scan geometry,
     "instances": manifest rows}. Each printed glyph's views are fused within their card into one instance under
     workdir/fused, and each glyph's stack goes to stacks_dir/<glyph>, default workdir/stacks, with its instances in a
-    chunks.Store. The per-card and per-glyph stages run in `workers` processes, default one per core
+    chunks.Store. The per-card and per-glyph stages run in `workers` processes, default one per core. min_units
+    overrides the profile's fewest units a glyph is stacked from. With the profile's few_units set and few true, glyphs
+    with fewer units than that, down to few_units, are stacked too and marked few, while each scan's edge level still
+    comes from the well-sampled glyphs alone
     """
     workdir = Path(workdir)
     fused = workdir / "fused"
@@ -503,8 +512,10 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
             if it + 1 < iterations:
                 refs = {c: np.mean(register(rectify_glyph(scans, M_tie, sample(by_char[c], REF_SAMPLE))), 0) for c in achars}
     n_groups = {c: len({group_of.get(nk, nk) for nk in v}) for c, v in by_char.items()}
-    min_units = target.get()["stack"]["min_units"]
-    glyphs = [c for c, v in by_char.items() if len(v) >= min_units and n_groups[c] >= min_units // 2]
+    min_units = target.get()["stack"]["min_units"] if min_units is None else min_units
+    well = {c for c, v in by_char.items() if len(v) >= min_units and n_groups[c] >= min_units // 2}
+    few_units = target.get()["stack"].get("few_units") if few else None
+    glyphs = [c for c, v in by_char.items() if c in well or (few_units and len(v) >= few_units)]
     workers = workers or os.cpu_count() or 1
 
     # each printed glyph's views, per card and glyph, in the order the views first appear
@@ -537,7 +548,7 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
         [nk[0], nk[1], int(o[0]), int(o[1]), float(w[0, 2]), float(w[1, 2])]
         for c in cards for keys, pls in zip(groups[c][ch], places[c][ch]) for nk, (o, w) in zip(keys, pls)]) for ch in glyphs}))
     with timed("fusing views"):
-        fusedres = _map(_card_fuse, [(views(c), (card_scans[c], card_M[c], groups[c], sizes, places[c], areas, fused / c)) for c in cards], workers, "fusing views")
+        fusedres = _map(_card_fuse, [(views(c), (card_scans[c], card_M[c], groups[c], sizes, places[c], areas, fused / c, well)) for c in cards], workers, "fusing views")
     levels = {n: t for lv, _ in fusedres for n, t in lv.items()}
     log.info("edge levels %s", " ".join(f"{n}:{t:.3f}" for n, t in sorted(levels.items())))
 
@@ -555,13 +566,14 @@ def build(scans, workdir, iterations=2, chars=None, tie=True, stacks_dir=None, w
         for i, members in enumerate(order[ch]):
             kk = members[0]
             card = scans[kk[0]]["card"]
+            anchor = scans[kk[0]]["units"][kk[1]].get("anchor")
             rows.append(dict(
                 char=ch, pair_id=f"{card}:{ch}:{kk[0]}:{kk[1]}", card=card, kept=bool(keep[i]),
                 scans=[m[0] for m in members], units=[m[1] for m in members], edge_level=[levels[m[0]] for m in members],
                 halo_px=[scans[m[0]]["units"][m[1]]["halo_px"] for m in members], card_scale=float(np.sqrt(card_S[card][0, 0] * card_S[card][1, 1])),
                 print_scale=scans[kk[0]]["scale"], loo_iou=float(loo[i]), deviation_um=devs[i], pair_dev_um=pair_dev[i],
-            ))
-        stacks[ch] = dict(st, n_units=len(by_char[ch]), n_dropped=int((~keep).sum()), cards=stack_cards)
+            ) | (dict(anchor=anchor) if anchor else {}))
+        stacks[ch] = dict(st, n_units=len(by_char[ch]), n_dropped=int((~keep).sum()), cards=stack_cards, few=ch not in well)
         log.debug("%r: %d instances from %d cards, %d dropped, LOO IoU %.3f", ch, st["n"], len(stack_cards), stacks[ch]["n_dropped"], st["loo"].mean())
     with_dev = [r for r in rows if r.get("pair_dev_um") is not None]
     devs = np.array([r["pair_dev_um"] for r in with_dev])

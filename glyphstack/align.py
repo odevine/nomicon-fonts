@@ -1,20 +1,16 @@
 """Aligns segmented glyph boxes to the known printed text so every box gets its character"""
 import numpy as np
-import openpyxl
+
+from .cards import paragraphs, printed
 
 SKIP_BOX = 7.0
 SKIP_CHAR = 7.0
 MERGE_PENALTY = 1.5
 
 
-def card_text(xlsx, name):
-    """Returns the rules text of a card from the Card text tab, without the Rules: and Flavor: labels"""
-    ws = openpyxl.load_workbook(xlsx)["Card text"]
-    for row in ws.iter_rows(values_only=True):
-        if row[1] == name:
-            lines = [l for l in row[4].split("\n") if l not in ("Rules:", "Flavor:")]
-            return "\n".join(lines)
-    raise KeyError(name)
+def card_text(text):
+    """A card's printed text from its cards file text, a line per paragraph without italic markup"""
+    return "\n".join(printed(p) for p, _ in paragraphs(text))
 
 
 def line_metrics(glyphs):
@@ -167,9 +163,3 @@ def align(glyphs, text, rounds=3):
             for k in (i, i + 1):
                 glyphs[k]["char"], glyphs[k]["align"] = chars[j], "split"
     return total
-
-
-def card_targets(xlsx, name, font):
-    """Returns the glyph characters the Trace targets tab asks for from a card in one font"""
-    ws = openpyxl.load_workbook(xlsx)["Trace targets"]
-    return [r[4] for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == name and r[3] == font]

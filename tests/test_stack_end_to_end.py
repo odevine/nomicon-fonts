@@ -103,3 +103,19 @@ def test_chunk_store_reads_back_in_any_order(tmp_path, monkeypatch):
     got = R.take([9, 0, 4, 3])
     assert np.allclose(got[:, 0, 0], [0.9, 0.0, 0.4, 0.3], atol=1e-3) and got.dtype == np.float32
     assert np.allclose(R[7], 0.7, atol=1e-3)
+
+
+def test_glyphs_with_few_units_are_stacked_without_moving_the_well_sampled_ones(tmp_path):
+    scans = synthetic_scans()
+    # three printed copies of a rare glyph on card A, each in both of its scans
+    rng = np.random.default_rng(9)
+    for i, (x, y) in enumerate([(1700, 200), (1750, 400), (1800, 600)]):
+        for k, n in enumerate(("A_0", "A_90")):
+            scans[n]["units"].append(dict(ch="x", cov=glyph("l", rng), cx=x + 40 * k, cy=y - 25 * k, halo_px=3))
+    with_few = stack.build(scans, tmp_path / "a", iterations=1, workers=1)
+    without = stack.build(scans, tmp_path / "b", iterations=1, workers=1, few=False)
+    assert "x" in with_few["stacks"] and with_few["stacks"]["x"]["few"] and "x" not in without["stacks"]
+    assert not with_few["stacks"]["o"]["few"]
+    assert with_few["levels"] == without["levels"]
+    for ch in ("o", "l"):
+        assert np.array_equal(with_few["stacks"][ch]["mean"], without["stacks"][ch]["mean"])

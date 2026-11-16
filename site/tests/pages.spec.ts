@@ -33,7 +33,7 @@ test('the figures on the data page come from the exported data, not the home pag
   const levels = Object.values(cards).flatMap((c: any) => c.scans.map((s: { edge_level: number }) => s.edge_level));
   const enough = glyphs.filter((g: { n: number }) => g.n >= meta.min_instances).length;
   const figures = [
-    String(e.n), String(enough), `${n.alternative.single_scan_um.toFixed(1)} µm`, `${n.alternative.pair_mean_um.toFixed(1)} µm`,
+    String(e.n), String(enough), `${n.headline.single_scan_um.toFixed(1)} µm`, `${n.headline.pair_mean_um.toFixed(1)} µm`,
     cal.summary.px_per_mm.toFixed(2), `${Math.min(...levels).toFixed(2)}–${Math.max(...levels).toFixed(2)}`,
   ];
   await page.goto('/data/');

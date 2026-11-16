@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const s = read('steps/e.json');
-const noise = read('noise.json').alternative;
+const noise = read('noise.json').headline;
 
 test('the Scan to Glyph sequence has ten steps with working images and passes axe', async ({ page }) => {
   const bad: string[] = [];
@@ -52,7 +52,8 @@ test('every published crop and step image is small, never a whole card', async (
       const i = buf.indexOf('VP8L');
       const b = buf.subarray(i + 9, i + 13);
       const w = 1 + (((b[1] & 0x3f) << 8) | b[0]);
-      sizes.push(w);
+      // cov4 crops sit on the registration grid, four times finer than a scan pixel
+      sizes.push(f.includes('_cov4') ? w / 4 : w);
     }
   }
   expect(Math.max(...sizes)).toBeLessThanOrEqual(480);

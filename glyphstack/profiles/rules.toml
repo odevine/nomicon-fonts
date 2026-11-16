@@ -46,15 +46,30 @@ ink_level = 120
 # component size limits in scan px
 min_area = 150
 min_height = 8
-max_size = 150
-# a small component above a tall one joins it, for the dots of i and j
+max_size = 180
+# a small component above a tall one joins it, for the dots of i and j, when it overlaps the stem's top end
 dot_max_area = 700
+# a dot this small, below min_area, joins only a stem whose top is at most dot_narrow_stem of its height across, as an
+# i or j is, so a speck of halftone above another letter stays out of it
+dot_min_area = 40
+dot_narrow_stem = 0.6
 dot_max_box = 24
 dot_stem_min_height = 30
 dot_max_gap = 25
+# keep accents apart from their letters: every dot needs a stem narrow at its top, as an i or j is, and two dots side
+# by side over a letter join each other as a diaeresis, so an accent is a mark of its own
+keep_marks = true
+# the parts of a punctuation mark joined into one unit, each no taller than mark_max_height: two quote halves at most
+# quote_max_gap apart side by side, the two bars of = equals_gap apart, a colon's or semicolon's dot colon_gap above its
+# dot or comma, and the dot of ! or ? foot_gap below the foot of its stem
+mark_max_height = 50
+quote_max_gap = 12
+equals_gap = [10, 40]
+colon_gap = [14, 40]
+foot_gap = [2, 16]
 
 [templates]
-charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ"
+charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'\"/-+()[]&%‘’“”–—Ææ#$<=>@\\_|°²œ•…−„ı´`ˆ¨˜˚ˇ"
 # 4x grid px per em at print scale 1.0, vertical aspect and ink spread in grid px, from the pilot's solo scan `e`
 px_per_em = 591.72
 aspect = 1.0147
@@ -63,6 +78,12 @@ ink_spread = 1.55
 scale_range = [0.80, 1.06]
 min_iou = 0.85
 min_margin = 0.10
+# pairs alike in shape that print at different heights, low one first, labelled by where the unit sits on its line
+twins = ["„”", "_–"]
+# a unit left unlabelled just over a labelled letter is tried against the accent templates alone, within this share
+# of their size and from this overlap, since printed accents differ from the measuring stick's more than letters do
+mark_size_tolerance = 0.3
+mark_min_iou = 0.7
 
 [geometry]
 # scan geometry is estimated from the most frequent characters of the primary face in this pool
@@ -72,6 +93,8 @@ count = 13
 [stack]
 # a glyph is stacked once it has this many units and half as many printed copies
 min_units = 16
+# glyphs with fewer units, down to this many, are stacked too and traced with the prior of the fit section
+few_units = 1
 loo_min_iou = 0.85
 
 [fit]
@@ -80,6 +103,9 @@ seed_glyph = "e"
 # starting scale, aspect, rotation, x, y and ink spread
 seed = [0.592, 1.0, 0.0, 0.0, 0.0, 1.5]
 scale_bounds = [0.4, 0.8]
+# a glyph with fewer instances than the session traces from is traced from its stack blended with its outline,
+# drawn with the face's print look, which counts as this many instances
+prior_weight = 4
 
 [site]
 # the glyph and card the Scan to Glyph sequence is drawn from
