@@ -1,0 +1,107 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/halftone-screen/');
+const img = (f: string) => href(`/data/notes/${f}`);
+---
+<Page title="The halftone screen behind the text" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>The halftone screen behind the text</h1>
+      <p class="lede">The dots behind the rules text are about the size of a letter’s edge. I measured whether they hurt the traced letters, tried three ways to get rid of them, and didn’t keep any of them.</p>
+      <p>The text box on most cards isn’t plain paper. It’s a pale tint, and the tint is printed as a halftone screen, a fine grid of dots, with the rules text printed in black on top. I wanted to know whether that screen moves the edges the pipeline traces, and if it does, what to do about it.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="problem">
+      <h2 id="problem">The dots are the size of an edge</h2>
+      <p>In a 1200 dpi scan of Focused Funambulist, the screen runs at about 200 lines per inch, a dot every 6 scanner pixels or so, at several angles at once. That fits a cyan screen and a black screen laid at different angles. A letter’s edge takes 4 to 5 pixels to go from paper to solid ink, so where a dot lands next to an edge, it moves the point where the edge crosses half coverage. That’s the line the pipeline traces.</p>
+      <figure class="mid shot">
+        <img src={img('colour_text_box.webp')} width="1390" height="496" alt="A few words of rules text on Focused Funambulist in a colour scan, over a fine grid of grey-blue dots" loading="lazy" />
+        <figcaption>Part of Focused Funambulist’s text box in a colour scan at 1200 dpi. The dots are grey-blue rather than pure cyan.</figcaption>
+      </figure>
+      <p>The pipeline already had a guard against the dots, a fixed floor. Coverage below a quarter of the ink level counts as paper, coverage above three quarters counts as solid ink, and the range between is stretched to fill. Almost no dot reaches a quarter of ink, so the floor keeps them out of the background. The catch is that it also trims the faint outer quarter and the dark inner quarter of every edge, and the stack is built from that edge.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="baseline">
+      <h2 id="baseline">One card as a fixed baseline</h2>
+      <p>I measured every fix against the same scan run through the same pipeline: Focused Funambulist scanned once at 0 degrees, with 10 letters that have 8 to 24 printed copies each, 127 copies in all, and none dropped.</p>
+      <p>On that card, a single copy’s edge sits about a third of a pixel from its stack. Measured as the RMS distance of each copy’s outline from the stack of all the copies of its letter, that’s 7.67 µm, where one scanner pixel is 21.2 µm. Splitting each letter’s copies into two halves and comparing their means agrees to within 0.15 µm, and resampling puts chance movements of the pooled figure at about 0.08 µm. So a fix that moves it by a few tenths is real.</p>
+      <p>One thing worth knowing before reading the results: stacking copies averages the screen, but stacking views of one copy doesn’t. The screen is printed on the card, so it sits in the same place in every scan of one printed letter. Different printed copies land on different parts of the screen, though. A fix that works should show up as less disagreement between copies, which means fewer copies needed for the same stack.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="colour">
+      <h2 id="colour">Colour can’t separate the dots</h2>
+      <p>My first idea was to scan in colour and pull the dots apart from the text by ink. Black text is dark in all three channels, while a cyan dot is dark mainly in red. A colour scan of the same card, matched to the grey one, put that to the test.</p>
+      <p>It didn’t work, because the dots are partly black ink. One direction in colour accounts for 90 percent of the variation between background pixels, and it lies only 19 degrees from the colour of the text. The dots darken red, green and blue in a ratio of about 1 to 0.55 to 0.45, far less lopsided than pure cyan, and the darkest dots are the most neutral. The best mix of channels lowers the darkest dots from about 0.55 of ink to 0.40, but it more than halves the contrast of the text, which amplifies noise. The share of background past the floor comes out the same in grey, in blue alone and in the brightest channel.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="notch">
+      <h2 id="notch">A notch filter on the screen’s frequencies</h2>
+      <p>The screen is close to regular, so in the frequency domain it shows up as sharp peaks, while a letter’s edge spreads over a wide range of frequencies. A notch filter finds those peaks in each scan and cuts a narrow hole at each one, which means the angle the card was scanned at doesn’t matter.</p>
+      <figure class="mid shot">
+        <img src={img('screen_spectrum.webp')} width="768" height="768" alt="The frequency spectrum of a text box, grey noise with a regular pattern of bright points, each with a soft halo, and faint vertical streaks" loading="lazy" />
+        <figcaption>The spectrum of the text box with the text masked out. The bright points are the screen, at about 0.17 cycles per pixel. Their halos show the screen isn’t perfectly regular, and the vertical streaks point to faint banding from the scanner.</figcaption>
+      </figure>
+      <p>On synthetic text blurred to the scan’s edge width, a narrow notch moves edges by less than a fifth of a pixel while it removes most of the screen. Wider notches and plain blurs move them by 0.4 to 1 pixel, which is too much for a stack that works below the pixel.</p>
+      <figure class="mid shot strips">
+        <div><p class="lab">Before</p><img src={img('notch_before.webp')} width="1274" height="472" alt="Coverage of a line of Reef Worm's rules text with a fine diagonal dot pattern in the background" loading="lazy" /></div>
+        <div><p class="lab">After the notch filter</p><img src={img('notch_after.webp')} width="1274" height="472" alt="The same line after the notch filter, with the dot pattern mostly gone" loading="lazy" /></div>
+        <figcaption>Coverage of a line of Reef Worm’s rules text before and after the notch filter. Some texture survives, from the halos and the scanner’s banding.</figcaption>
+      </figure>
+      <p>Run through the unchanged pipeline, the filtered scan kept exactly the same letters as the baseline, so I could compare every copy with itself.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>The notch filter against the baseline on Focused Funambulist</caption>
+          <thead><tr><th>Measure</th><th class="r">Baseline</th><th class="r">Narrow notch</th><th class="r">Wider notch</th></tr></thead>
+          <tbody>
+            <tr><td>Copy’s distance from its stack, µm</td><td class="r">7.67</td><td class="r">7.51</td><td class="r">7.48</td></tr>
+            <tr><td>Copies that improved</td><td class="r"></td><td class="r">81%</td><td class="r">81%</td></tr>
+            <tr><td>Stack moved from the baseline, µm</td><td class="r"></td><td class="r">1.10</td><td class="r">1.48</td></tr>
+            <tr><td>Stroke weight change, µm</td><td class="r"></td><td class="r">+0.21</td><td class="r">+0.40</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The filter does make each copy’s edge a little steadier, and the change is real. Four copies in five improve, and the distance falls for every one of the 10 letters.</p>
+      <p>The improvement is small, though, and I think that’s because the screen is a small part of the noise to begin with. Noise adds in quadrature, so if the filter removed all of the screen’s effect, the screen accounts for about 1.7 µm of each copy’s 7.67 µm. Most of the disagreement between copies comes from somewhere else: real differences between printed copies, and the scanner’s own noise. A 2.5 percent drop in per-copy noise works out to about 5 percent fewer copies for the same stack.</p>
+      <p>The bigger problem is that the filter changes the letters by more than it improves them. Every letter gets bolder, by 0.21 µm with the narrow notch and 0.40 µm with the wider one. The likely cause is the paper level. The pipeline measures paper in a ring close to each letter, where the dots used to darken it. With the dots gone the paper reads slightly brighter, and coverage measured against brighter paper reads slightly darker everywhere.</p>
+      <p>It also leaves a faint ghost of the screen near the text, 25 to 80 pixels from the ink. The screen is hidden under solid ink, but the filter subtracts it everywhere, including under the ink, and a narrow notch spreads that error over tens of pixels.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="floor">
+      <h2 id="floor">Lowering the floor</h2>
+      <p>With the dots filtered out, the floor could come down from a quarter of ink and keep more of each edge. My first try lowered the floor to 0.10 and left the ceiling at 0.75. That turned out to change two things at once. The pipeline traces each stack at half coverage, and with the range now running from 0.10 to 0.75, half coverage sits at 42.5 percent of the ink level rather than 50.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Lower floors on the filtered and the raw scan, against the baseline</caption>
+          <thead><tr><th>Run</th><th>Range</th><th class="r">Letters kept</th><th class="r">Distance change, µm</th><th class="r">Stroke weight, µm</th></tr></thead>
+          <tbody>
+            <tr><td>Baseline</td><td>0.25 to 0.75</td><td class="r">184</td><td class="r"></td><td class="r"></td></tr>
+            <tr><td>Filtered</td><td>0.10 to 0.75</td><td class="r">162</td><td class="r">−0.23</td><td class="r">+4.96</td></tr>
+            <tr><td>Raw</td><td>0.10 to 0.75</td><td class="r">163</td><td class="r">+0.14</td><td class="r">+4.96</td></tr>
+            <tr><td>Filtered</td><td>0.10 to 0.90</td><td class="r">184</td><td class="r">−0.19</td><td class="r">+0.33</td></tr>
+            <tr><td>Raw</td><td>0.10 to 0.90</td><td class="r">184</td><td class="r">+0.03</td><td class="r">−0.11</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>With the range at 0.10 to 0.75, every letter came out about 5 µm bolder, a quarter of a pixel, and 22 fewer letters matched the font well enough to be kept. That isn’t noise. It moves where the edge is defined, because the middle of the range sets the traced stroke weight.</p>
+      <p>Once I held the middle at one half, a lower floor made no difference. On the range 0.10 to 0.90, the filtered scan’s noise is within 0.02 µm of the filter alone, and the raw scan’s within 0.03 µm of the baseline, even though more dots get through. A range centred on one half leaves each letter’s traced edge where it was, so the floor can only matter through the steps that read the edge around it.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="green">
+      <h2 id="green">The colour scan, end to end</h2>
+      <p>The colour scan looked sharper than the grey one, and nothing above had tested that. So I ran it through the pipeline too, reduced to one channel.</p>
+      <p>The green channel steadied the edges about as much as the notch filter did, without any filtering. Copies sit 0.23 µm closer to their stacks, with about two in three improving, even though the dots show more strongly in green than in the grey scan. Edges rise from paper to ink faster in every colour channel, over 2.9 pixels in green against 3.6 in grey.</p>
+      <p>I didn’t want to read too much into that. The colour scan differs from the grey one in more than sharpness. Its tone curve puts paper and ink at different levels, so more shapes are found and more letters kept, and its print scale settles one percent lower. Sharper optics, a different tone curve and any sharpening the scanner applies would all steepen the edges, and these two scans can’t tell them apart. A scan of the calibration target in both modes can, since its slanted edges give the true edge width and its tone steps give each mode’s curve. <a href={href('/notes/colour-against-grey/')}>Colour scans against grey</a> runs that test.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="kept">
+      <h2 id="kept">None of it was worth keeping</h2>
+      <p>On this card, none of the fixes earns a place in the pipeline. The notch filter lowers each copy’s edge noise by about 0.2 µm, 2.5 percent, and makes every letter 0.3 to 0.4 µm bolder while it does. A lower floor changes edge noise by less than 0.05 µm once its middle stays at one half. Colour doesn’t separate the dots. So the pipeline stays as it was: grey scans, no filtering, and the same floor and ceiling, which are now a setting rather than fixed in the code.</p>
+      <p>The screen turned out to be a small part of the problem. It accounts for about 1.7 µm of each copy’s 7.67 µm, and most of the rest comes from differences between printed copies and from the scanner, which stacking more copies lowers anyway.</p>
+      <p>Two things I learned here apply well beyond the screen. Any change to the floor and ceiling has to keep their middle at one half, or it changes the traced weight of every letter. And a filter that assumes the screen runs everywhere, including under solid ink, has side effects that outweigh a small gain.</p>
+      <p>To be fair to the fixes, this evidence has the limits of its baseline: one card, scanned once at one angle, with 8 to 24 copies per letter and no calibration scan. The test that could change the answer is a card scanned at several angles, where a fuller edge might help when the views are combined, ideally with a filter that estimates the screen from open paper only.</p>
+    </section>
+  </div>
+</Page>

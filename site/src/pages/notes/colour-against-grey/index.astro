@@ -1,0 +1,101 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/colour-against-grey/');
+const img = (f: string) => href(`/data/notes/${f}`);
+const pairs = [
+  { card: 'It That Heralds the End', key: 'herald', h: 430, what: 'rules text over faded card art' },
+  { card: 'Dismal Backwater', key: 'dismal', h: 426, what: 'the dark right side of the text box' },
+  { card: 'Bite Down on Crime', key: 'bite', h: 430, what: 'text over an irregular printed texture' },
+];
+---
+<Page title="Colour scans against grey" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Colour scans against grey</h1>
+      <p class="lede">Text on a halftone background looks sharper in a colour scan than in a grey one. I wanted to know whether that’s detail the pipeline could use. For the most part, it isn’t.</p>
+      <p><a href={href('/notes/halftone-screen/')}>The halftone screen note</a> ended on an open question. The green channel of a colour scan steadied the letters’ edges about as much as a filter did, and nothing in that test could say whether the colour scan resolved finer detail or only drew its edges with more contrast. This note tries to answer it with a session of matched scans: the calibration target at 0 and 90 degrees, and three cards, each scanned once in grey and once in colour without lifting the lid.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="optics">
+      <h2 id="optics">The scanner doesn’t resolve more in colour</h2>
+      <p>The calibration target carries slanted edges, which give the true width of an edge in micrometres, and printed tone steps, which give each mode’s tone curve. A steeper tone curve narrows how an edge looks without making the optics any sharper, so I also mapped each colour channel onto grey mode’s tone curve, step for step, before measuring its edges again.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Edges on the calibration target in each mode</caption>
+          <thead><tr><th>Mode</th><th class="r">Edge spread, µm</th><th class="r">10 to 90 width, µm</th><th class="r">Width on grey’s curve, µm</th></tr></thead>
+          <tbody>
+            <tr><td>Grey</td><td class="r">61.4</td><td class="r">116.3</td><td class="r">116.3</td></tr>
+            <tr><td>Red</td><td class="r">69.0</td><td class="r">128.4</td><td class="r">110.3</td></tr>
+            <tr><td>Green</td><td class="r">68.1</td><td class="r">124.8</td><td class="r">114.0</td></tr>
+            <tr><td>Blue</td><td class="r">69.4</td><td class="r">127.9</td><td class="r"></td></tr>
+            <tr><td>Mean of the three</td><td class="r">69.4</td><td class="r">126.6</td><td class="r">113.0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Edge spread, the measure the tone curve moves least, is 11 percent wider in every colour channel than in grey. On grey’s tone curve, though, the colour channels’ edges come out 2 to 5 percent narrower than grey’s. So the two measures disagree, and since the mapping runs through only 11 tone steps with a steep stretch between 10 and 20 percent, I don’t think either settles it alone. The blue channel’s tone steps couldn’t be found, so it has no mapped width.</p>
+      <p>Neither mode shows any sign of sharpening either. Sharpening leaves a light halo just outside a dark edge, and in both modes the grey just outside each edge stays darker than paper. So the target gives no clear sign that colour resolves finer detail.</p>
+      <p>What does differ is the tone curve. Grey mode darkens light tints much more. The printed 20 percent step reads 156 in grey and 189 in green, and the 10 percent step 228 against 248. Paper reads 255 in every mode, so grey mode may also be clipping the lightest tones.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="ruler">
+      <h2 id="ruler">A ruler a degree askew</h2>
+      <p>Before I could measure any of that, both modes failed the calibration check. The check reads two printed rulers on the target and compares the scale along each axis, and it allows 0.2 percent between them. Grey read 0.77 percent and the colour channels 1.15 to 5.03, where the pilot’s calibration had read 0.033.</p>
+      <p>The 90 degree scans were the cause. The sheet sat about a degree askew in them, so each ruler’s baseline drifted 38 to 47 pixels along its length. The ruler reader looked for the baseline near a single row, which only works while a ruler is level to about half a degree. It found the baseline along a third of the ruler, decided the ticks hung on the wrong side, and read 12 to 30 of the 61 ticks.</p>
+      <p>It now follows the baseline along the ruler in short stretches before searching near it, and decides which side the ticks hang on by counting ink pixels. The pilot’s calibration is unchanged to four decimals, and every mode here reads all 61 ticks on each ruler and passes, at 0.18 percent. That’s still about five times the pilot’s figure and close to the limit, and the next calibration pair should show whether it comes from the scanner or from how the sheet lay. <a href={href('/notes/askew-scans/')}>A degree askew</a> follows the tilt into other measurements.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="contrast">
+      <h2 id="contrast">Colour doesn’t separate text from texture any better</h2>
+      <p>What matters for reading a letter isn’t how dark it is, but how far it stands above the texture around it. So I measured each card’s text against the texture behind it: the gap between the texture’s median grey and the text’s, divided by the texture’s own spread, since that spread is what an edge has to be found against. Dismal’s box fades from light to near black, so I measured its two sides apart.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Text contrast against the texture, in units of the texture’s spread</caption>
+          <thead><tr><th>Region</th><th class="r">Grey</th><th class="r">Green</th><th class="r">Mean of three</th><th class="r">Brightest channel</th></tr></thead>
+          <tbody>
+            <tr><td>Bite</td><td class="r">9.29</td><td class="r">7.88</td><td class="r">7.45</td><td class="r">7.80</td></tr>
+            <tr><td>Herald</td><td class="r">4.78</td><td class="r">4.90</td><td class="r">4.89</td><td class="r">4.89</td></tr>
+            <tr><td>Dismal, light side</td><td class="r">8.16</td><td class="r">6.33</td><td class="r">6.16</td><td class="r">7.60</td></tr>
+            <tr><td>Dismal, dark side</td><td class="r">3.13</td><td class="r">2.79</td><td class="r">2.83</td><td class="r">2.93</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Colour mode leaves the texture lighter, at 177 against 141 on Herald, and I think the larger gap between text and texture is what reads as a sharper edge. But the texture’s spread grows by about as much, so the ratio is no better. Grey is ahead on three of the four regions and level on the fourth.</p>
+      <figure class="mid shot pairs">
+        {pairs.map((p) => (
+          <div class="pair-row">
+            <p class="lab">{p.card}, {p.what}</p>
+            <div><img src={img(`mode_${p.key}_grey.webp`)} width="1190" height={p.h} alt={`${p.card} in the grey scan, enlarged`} loading="lazy" /><span>Grey</span></div>
+            <div><img src={img(`mode_${p.key}_colour.webp`)} width="1190" height={p.h} alt={`${p.card} in the colour scan, enlarged`} loading="lazy" /><span>Colour</span></div>
+          </div>
+        ))}
+        <figcaption>The same few letters in each mode, turned level and enlarged so the scanner’s pixels show. The colour scans look crisper because their texture is lighter, while the dots stand out from it just as much.</figcaption>
+      </figure>
+      <p>The two modes also don’t land on the same pixels. Colour sits 0.5 to 4.5 pixels from grey, by a different amount on each scan, so any pixel by pixel comparison between them has to line them up first.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="varied">
+      <h2 id="varied">The backgrounds are more varied than I’d assumed</h2>
+      <p>The halftone screen note worked on one card whose texture was a fine, regular screen of cyan and black. These three cards widen that quite a bit.</p>
+      <p>Herald’s texture is the card art, faded. The colourless frame carries the art on into the text box, so the screen under the text changes colour from place to place.</p>
+      <p>Dismal’s texture runs from light blue to near black. On its right side the screen is dark enough that the text stands only about three times its spread above it, in either mode.</p>
+      <p>Bite’s texture isn’t a regular screen at all. It’s an irregular, wormlike pattern, and a notch filter only finds its peaks on a regular screen, so it would leave this one in place.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="open">
+      <h2 id="open">The open problem is the texture under the edges</h2>
+      <p>Black text is printed over the texture, so the ink and the texture under it combine. Inside a letter, the black ink hides the texture. At the edge, a pixel holds partly ink and partly whatever texture sits under it there. The pipeline reads coverage as a straight line between one paper level and one ink level, and under a dark or uneven texture that moves where the half coverage edge falls.</p>
+      <p>Inks printed over one another multiply the light they reflect, so their densities add. A model with that property would read a letter’s own coverage as its density less the texture’s density under it. That needs grey levels made linear in reflected light, an estimate of the texture under each edge, and the ink’s own density.</p>
+      <p>The good news is that a test for this doesn’t need new scans. Dismal prints the same face on a light background and a dark one, on the same card and in the same scan. If coverage were read correctly, a letter’s stroke weight wouldn’t depend on which side of the box it sits on, so the difference between the two sides measures the error, before and after any change. <a href={href('/notes/text-over-texture/')}>Text printed over texture</a> picks that test up.</p>
+    </section>
+  </div>
+</Page>
+<style>
+  .pairs { display: grid; gap: 1rem; }
+  .pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.75rem; }
+  .pair-row .lab { grid-column: 1 / -1; font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--red-text); margin: 0; }
+  .pair-row span { display: block; font-family: var(--label); font-style: italic; font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+  .pairs figcaption { margin-top: 0; }
+</style>

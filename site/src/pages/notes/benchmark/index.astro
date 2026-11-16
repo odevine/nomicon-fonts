@@ -1,0 +1,74 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/benchmark/');
+const img = (f: string) => href(`/data/notes/${f}`);
+---
+<Page title="Scoring against the printed text" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Scoring against the printed text</h1>
+      <p class="lede">I know each card’s text before it’s scanned, so every printed letter can be placed and every run scored on the letters it finds and names. Doing that by hand worked for three cards. Doing it for 28 took a week of fixes to the fit.</p>
+      <p><a href={href('/notes/text-over-texture/')}>Text printed over texture</a> scored its runs on three cards, with a box fitted around each printed letter and checked by eye. I chose those three for their hard backgrounds, which also meant they couldn’t tell me whether a change helped or hurt everywhere else. The benchmark widens the same scoring to 28 cards, two scans each, 56 scans and 11,098 printed characters.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="truth">
+      <h2 id="truth">Placing every printed letter</h2>
+      <p>The scan list already holds each card’s rules and flavor text, so the fit knows which letters to look for and in what order. It turns the text box level by the tilt of its text, as <a href={href('/notes/askew-scans/')}>A degree askew</a> describes, finds each printed line from the rows of ink, and gives words to lines by how wide their ink runs. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic.</p>
+      <p>Then it renders each line in the measuring stick font and slides the letters along it, one at a time, so the whole line matches the print as well as it can, with each letter free to move a little from where the font would set it. The best placement for the line is found as a whole rather than letter by letter, so one poor match doesn’t drag the rest of the line after it. The fit writes a box for every character and an overlay of the boxes on the scan.</p>
+      <p>On the three texture cards it reproduced the hand-checked boxes for every character. On the other 25, at first, it didn’t.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="cards">
+      <h2 id="cards">25 more cards, more ways to fail</h2>
+      <p>Some cards ran past the edge of the scan. A card cut off by a few millimetres along two edges moved its text box, which was placed as a share of the scan. The card’s frame is now rebuilt from its intact edges and its printed size, and the box is placed as a share of the card instead.</p>
+      <p>Frames also vary more than the first three cards showed. A power and toughness box or a set symbol can sit over the last line of text and hide it from a search across the full width, so lines are now found from two ranges of columns. A centred line, a type line that strays into the box, and a last word that lands on the frame each needed handling of their own.</p>
+      <p>Closing quotes sat too far right. The fit stepped from letter to letter by each letter’s bare advance, but the italic face kerns a full stop or comma before a closing quote by a fifth of an em, about 30 scanner pixels at print size. So every one of those quotes was placed past where it printed and scored as a broken fragment. Each advance now adds the font’s kerning. That moved 64 characters by more than 3 pixels, and 18 of the 24 that moved more than 10 were closing quotes.</p>
+      <p>And some printed text is italic for no reason the rules can see. Photo Op prints the word Magic in italic in the middle of its rules. Card text now marks words like that with underscores, and the fit reads the markup.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="symbols">
+      <h2 id="symbols">Some lines don’t look like the font at all</h2>
+      <p>Niv-Mizzet, the Firemind has a line of flavor text that’s a formula, with raised exponents and minus signs set on their own. The measuring stick font draws exponents as full-size digits and puts its minus sign on its math axis, so the fitted line matched the print with a mean correlation of 0.25.</p>
+      <figure class="mid shot strips">
+        <div><img src={img('bench_formula.webp')} width="1387" height="122" alt="The formula line of Niv-Mizzet's flavor text with a blue box fitted around each character, the raised 90 degree signs and the small 2 sitting in boxes above the line" loading="lazy" /></div>
+        <figcaption>Niv-Mizzet’s formula line, turned level, with the box fitted to each character. The exponents and degree signs sit in their own smaller boxes above the line, and the minus signs on their printed dashes.</figcaption>
+      </figure>
+      <p>A line that fits that poorly now gets fitted a second time, over a wider range of baselines. Each character can sit up to a quarter of an em off the line and can take an exponent form, 0.83 of its size and raised 0.17 em. The formula line rose to 0.90, and Magical Hacker’s line of symbols from 0.40 to 0.80. Lines that fit well the first time never take the second fit, and every other scan’s boxes came out unchanged.</p>
+      <p>The print also sets a few letters further apart than the font does. Bloodletter’s Æ and the full stop after it sit wider than the measuring stick spaces them, so the full stop’s box landed on the edge of the Æ.</p>
+      <figure class="mid shot strips">
+        <div><img src={img('bench_ae.webp')} width="1055" height="123" alt="Part of Bloodletter's flavor text, it's an Æ. Wait, with a box fitted around each letter, the full stop boxed on its own after the Æ" loading="lazy" /></div>
+        <figcaption>Bloodletter’s flavor text, turned level. The full stop after the Æ is moved to where it correlates with the print.</figcaption>
+      </figure>
+      <p>On a line that fits well, a character that still correlates below 0.5 is now searched up to 0.3 em either side and moved to where it reaches 0.5 without landing on a neighbour. Thirteen characters on eight scans moved, and false labels under the texture profile fell from 10 to 3.</p>
+      <p>Whatever the fit still can’t place well is left out of scoring. A character cut by the edge of the scan, or on a line whose mean correlation stays below 0.5, counts as ignored. The first scores ignored 84 characters, and after the fixes above, 10 of the 11,098 are.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="score">
+      <h2 id="score">What a run is scored on</h2>
+      <p>Scoring extracts every scan again and lays the pieces of ink the pipeline found over the boxes. A piece whose centre falls in one character’s box is found. A piece that covers two characters is merged, a character split over several pieces is fragmented, and a piece in no box is stray. Each found piece then has the label the pipeline gave it, which is right, right but in the wrong face, wrong, or a label given to a stray piece, which I call a false label. Every count is split by face and by how strong the screen is under each character.</p>
+      <p>At first, merged letters were counted far too often. A kerned neighbour, like an o tucked under the bar of a T, or the letter before an italic overhang, puts its centre inside the box of the letter beside it. On the 28 cards, all 27 pieces scored as merged pairs were actually single letters, correctly labelled, with their neighbour masked off. A box that holds two centres now only counts the characters whose middle half the piece’s own ink reaches.</p>
+      <p>Two measures go beyond counting. Where a card has text on both plain and strongly screened background, the benchmark compares the ink in the same letters on each, along with the light ring just outside their edges. And each card is stacked on its own, so cards printed at slightly different sizes don’t pull on each other’s stacks, and the spread of each card’s letters about its stack is reported by background. <a href={href('/notes/ink-over-screen/')}>Ink printed over a screen</a> works from these.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="results">
+      <h2 id="results">The first scores</h2>
+      <p>The first scores came from the pipeline as <a href={href('/notes/text-over-texture/')}>Text printed over texture</a> left it, under both of its profiles: the plain one tuned on the pilot, and the one tuned for text over texture.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Characters labelled right on the 28 benchmark cards</caption>
+          <thead><tr><th>Stage</th><th class="r">Characters</th><th class="r">Plain profile</th><th class="r">Texture profile</th></tr></thead>
+          <tbody>
+            <tr><td>First run</td><td class="r">11,022</td><td class="r">8,846</td><td class="r">9,792</td></tr>
+            <tr><td>After the week’s fixes</td><td class="r">11,098</td><td class="r">9,189</td><td class="r">10,207</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The count of characters rose as I corrected card text against what was actually printed. The truth fixes above moved the scores a little. The rest came from changes to the pipeline that the benchmark pointed to, most of them in how the small parts of a letter or a punctuation mark get joined, and <a href={href('/notes/reading-every-mark/')}>Reading every mark</a> covers those. I fixed the truth first, though, since a run can’t be judged against boxes that are wrong.</p>
+      <p>One of those changes came straight out of the benchmark: fifteen characters the pipeline could never label. The cards print # $ &lt; = &gt; @ \ _ | ° ² œ • … and a minus sign, and none of them had a template to match against. Both faces of the measuring stick draw all fifteen, so both profiles now carry them. An equals sign prints as two short bars, which each matched the minus sign, so two flat bars of one width just over one another are now joined into one. That gained 14 bullets and two each of # &lt; &gt; = and œ, without any character losing a label.</p>
+      <p>The plain profile found none of Barad-dûr’s 177 characters on either scan, where the texture profile found 165 and 168. Most of the gap between the two profiles is on cards with text on strong screen, which is where the texture work has gone since.</p>
+    </section>
+  </div>
+</Page>

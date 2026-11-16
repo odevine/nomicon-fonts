@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const glyphs = read('glyphs.json');
-const paths = ['/', '/capture/', '/cleaning/', '/printing-leaves-a-mark/', '/glyphs/', '/typeset/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
+const paths = ['/', '/capture/', '/cleaning/', '/printing-leaves-a-mark/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
 
 for (const p of paths) {
   test(`${p} builds, has a title and the Fan Content notice, and passes axe`, async ({ page }) => {

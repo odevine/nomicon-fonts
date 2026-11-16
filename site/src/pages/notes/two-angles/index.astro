@@ -1,0 +1,42 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/two-angles/');
+---
+<Page title="Sixteen angles to two" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Sixteen angles to two</h1>
+      <p class="lede">The scan plan used to have every card scanned sixteen times, turned 22.5 degrees between each pass. It now has two scans per card, at 0 and 90 degrees. This note covers what the sixteen were supposed to buy, and why I changed the plan.</p>
+      <p>The full run is 36 cards. At sixteen passes that’s 576 scans. At two it’s 72, an eighth of the data and of the time spent at the scanner.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="why16">
+      <h2 id="why16">What sixteen angles were for</h2>
+      <p>Each turn lays the scanner’s pixel grid over the letters at a new angle. A letter edge that falls between two pixel centres in one pass falls somewhere else in the next, so averaging many passes samples each edge more finely than any one pass can. Fusing shifted passes onto a finer grid is a standard way to recover detail lost to sampling, and the pipeline carries code for it.</p>
+      <p>Turning the card also spreads out the scanner’s own distortion. When I fitted the pilot’s upright and quarter turned scans to each other, letter centres were still about 3 pixels apart, almost all of it along the direction the scanner’s carriage moves, changing sign every few hundred pixels. With sixteen angles, the carriage would cross each letter in sixteen directions, and its stretch would average out across the views.</p>
+      <p>I made a jig sheet for it, with notches for 0, 22.5, 45 and 67.5 degrees, each used in all four corners of the bed. A synthetic card, the pilot’s Reef Worm turned to all sixteen angles in software, ran through the pipeline cleanly. But no real card was ever scanned at all sixteen.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="learned">
+      <h2 id="learned">The scans since pointed the other way</h2>
+      <p>The scanner’s optics, not its pixels, set the finest detail. <a href={href('/notes/colour-against-grey/')}>Colour scans against grey</a> measured an edge on the calibration target as about 116 µm wide from 10 to 90 percent, which is five or six scanner pixels. Detail finer than that blur isn’t in any single scan, and turning the pixel grid under it adds more samples of the same blurred edge rather than new detail.</p>
+      <p>The variation that matters is between printed copies. A stack averages the copies of a letter printed on different cards and in different places, and scanning one card more times just rescans the same copies. Counted as printed copies, 135 of the 192 glyphs on the scan list fall short of sixteen across all 36 cards, and that’s true whether each card is scanned twice or sixteen times.</p>
+      <p>The glyphs that are short of copies already have an answer. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> blends a glyph’s few copies with the measuring stick, drawn with the face’s print look. More passes wouldn’t have added copies to those glyphs anyway.</p>
+      <p>Put together, sixteen passes was a lot more data to scan, store and process for a benefit I couldn’t point to, so I cut the plan to two.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="cost">
+      <h2 id="cost">Two angles do give something up</h2>
+      <p>To be fair to the old plan, it isn’t free. Each printed letter is still seen twice, once in each scan, and its two views are fused into one copy before stacking. On the benchmark the two views of a letter sit a median 8.9 µm apart once each card’s scans are fitted to each other. That’s about 7.5 µm of scan noise in each view, and fusing two brings it down to about 5.3 µm per copy. Sixteen independent views would have taken it lower.</p>
+      <p>That’s a real cost for a glyph with few copies, and a small one for a common glyph, whose stack averages the scan noise down across dozens of copies anyway. The carriage stretch is also only averaged over two directions now, rather than sixteen. Whether either of those shows up in the finished outlines would take a few cards scanned at 0 and 45 degrees as well to measure. The plan leaves room for that, since a card can be given any number of extra scans, at any angle, and the pipeline fuses them with the rest.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="now">
+      <h2 id="now">The plan now</h2>
+      <p>The jig sheet holds a single 0 degree jig. A card gets scanned in it in one corner of the bed, and the same jig moved to the next corner gives the 90 degree scan. The scan list counts a sample as one printed copy rather than one scan, so its totals say how many copies of each glyph the full run will actually reach. <a href={href('/notes/pipeline-performance/')}>Fitting the full run on one machine</a> was planned around 576 scans, so with 72 the full run fits with plenty of room to spare.</p>
+    </section>
+  </div>
+</Page>

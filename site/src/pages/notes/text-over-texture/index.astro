@@ -1,0 +1,157 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/text-over-texture/');
+
+const img = (f: string) => href(`/data/notes/${f}`);
+const boxes = [
+  { file: 'box_bite.webp', card: 'Bite Down on Crime', w: 1316, h: 135 },
+  { file: 'box_dismal.webp', card: 'Dismal Backwater', w: 1323, h: 155 },
+  { file: 'box_herald.webp', card: 'It That Heralds the End', w: 1319, h: 140 },
+];
+---
+<Page title="Text printed over texture" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Text printed over texture</h1>
+      <p class="lede">I built the pipeline on plain text boxes, and on three textured cards it read fewer than half of the printed letters. This is how that went from 297 of 675 to 573, without a single letter misread along the way.</p>
+      <p>Rules text is printed in black ink over whatever the text box holds. On most cards that’s a pale tint. On others it’s a gradient, a rough pattern, or the card’s art carried on faintly behind the words.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="three">
+      <h2 id="three">Three cards, three ways to fail</h2>
+      <p>I picked these cards because their backgrounds go wrong in different ways.</p>
+      <div class="mid scroll">
+        <table>
+          <thead><tr><th>Card</th><th>Behind the text</th><th>What went wrong</th></tr></thead>
+          <tbody>
+            <tr><td>Bite Down on Crime</td><td>A pale green, irregular, wormlike pattern</td><td>Very little</td></tr>
+            <tr><td>Dismal Backwater</td><td>A screen fading from light blue to near black</td><td>The dark half vanished</td></tr>
+            <tr><td>It That Heralds the End</td><td>The card art, faded, changing tone along each line</td><td>Almost nothing was read</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure class="wide shot strips">
+        {boxes.map((b) => (
+          <div><p class="lab">{b.card}</p><img src={img(b.file)} width={b.w} height={b.h} alt={`The first two lines of rules text on ${b.card}, from the grey scan`} loading="lazy" /></div>
+        ))}
+        <figcaption>The first two lines of each card’s rules text in the grey scan at 1200 dpi, turned level and shown at half resolution. Dismal’s background darkens from left to right.</figcaption>
+      </figure>
+      <p>All three backgrounds are printed as a halftone screen, a grid of dots about 6 scanner pixels apart, while the letters’ strokes are about 14 pixels wide. On Bite the dots are faint. On Herald and on Dismal’s dark side they’re about twice as strong against the gap between paper and ink, and the darkest dots are as dark as the letters themselves. Those boxes are screened in near neutral grey, so the dots are mostly black ink.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="truth">
+      <h2 id="truth">First, knowing what’s on the card</h2>
+      <p>Before I could say how many letters the pipeline reads, I needed to know where every printed letter is. I placed them by fitting the measuring stick font to each printed line of text, letter by letter, and checked the result by eye along every line. The three cards hold 289, 182 and 204 characters.</p>
+      <p>The first fit came out wrong in a way that taught me something. The cards sit about 0.8 degrees askew in their scans, and across a full line of text that’s a drift of 37 pixels, which a fit that assumed level lines couldn’t follow. Turning the image level before fitting, and turning the boxes back afterwards, raised the median match on Bite from 0.68 to 0.94. <a href={href('/notes/askew-scans/')}>A degree askew</a> has more on that tilt.</p>
+      <figure class="mid shot">
+        <img src={img('truth_herald.webp')} width="1400" height="300" alt="Two lines of It That Heralds the End with a thin blue box fitted around every printed character" loading="lazy" />
+        <figcaption>Part of Herald’s rules text with the fitted box of every character drawn in blue, over the colour scan. The scan is turned level here, and the boxes were fitted to follow the line’s tilt.</figcaption>
+      </figure>
+      <p>With every letter placed, I could score each run the same way. A letter the pipeline cuts out on its own is found. A found letter that gets a name is labelled, and it’s right only when both the character and the face, regular or italic, match the card.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="start">
+      <h2 id="start">Where the pipeline started</h2>
+      <div class="mid scroll">
+        <table>
+          <caption>Letters found and named right by the unchanged pipeline</caption>
+          <thead><tr><th>Card</th><th class="r">Printed</th><th class="r">Found</th><th class="r">Right</th></tr></thead>
+          <tbody>
+            <tr><td>Bite</td><td class="r">289</td><td class="r">285</td><td class="r">264</td></tr>
+            <tr><td>Dismal</td><td class="r">182</td><td class="r">91</td><td class="r">32</td></tr>
+            <tr><td>Herald</td><td class="r">204</td><td class="r">83</td><td class="r">1</td></tr>
+            <tr><th>Total</th><td class="r">675</td><td class="r">459</td><td class="r">297</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Bite reads almost fully. Its texture never gets dark enough to be mistaken for ink.</p>
+      <p>Dismal loses its dark half before any letter is even looked at. The pipeline separates ink from paper at one fixed grey level, and on Dismal’s right side the background itself is darker than that level. The whole region becomes one enormous shape that’s too big to be a letter, so it gets thrown away.</p>
+      <figure class="mid shot">
+        <img src={img('components_dismal.webp')} width="818" height="98" alt="Dismal Backwater's first two lines with red boxes around shapes the pipeline cut out and green boxes around the few letters it kept, all on the light left side" loading="lazy" />
+        <figcaption>Shapes the pipeline cut out are boxed in red and letters it kept in green. Every kept letter sits on the light side, and the right of the second line was never cut out at all.</figcaption>
+      </figure>
+      <p>Herald finds 83 letters and names one. At first I thought this was a problem with the dots, since they reach far enough into each letter’s outline that nothing matches the font. That turned out to be only part of the story, and not the larger part.</p>
+      <figure class="mid shot">
+        <img src={img('components_herald.webp')} width="816" height="98" alt="Herald's first two lines with red boxes around nearly every letter and a single green box" loading="lazy" />
+        <figcaption>On Herald nearly every letter is cut out, and one is kept.</figcaption>
+      </figure>
+    </section>
+
+    <section class="flow" aria-labelledby="level">
+      <h2 id="level">Levelling the paper</h2>
+      <p>A gradient breaks a fixed grey level. The fix is to stop asking how dark a pixel is, and ask how dark it is compared with the paper around it.</p>
+      <p>The pipeline now estimates the local paper level by filling in every dark shape narrower than 41 pixels, which is wider than any stroke but far narrower than the gradient, and then divides the scan by that level. The gradient flattens out, and the fixed grey level means the same thing everywhere on the card.</p>
+      <p>That alone took the found letters from 459 to 596, and Dismal’s dark side came back as whole letters. But the labelled letters only rose to 357, because the letters it found still had dots along their edges.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="screen">
+      <h2 id="screen">Blurring the screen only where it’s strong</h2>
+      <p>The screen’s dots are finer than the strokes, so a slight blur averages them out and keeps the letters. A blur of 1.5 pixels took Herald from 55 labelled letters to 168. It also cost Bite about a dozen, mostly the thin parts of r and the dots of i, on a card that never needed the blur at all.</p>
+      <p>So the blur now follows how strong the screen is around each pixel. Where the screen is weak, as on Bite and Dismal’s light side, the scan stays sharp. Where it’s strong, it gets the full blur.</p>
+      <p>I tried several other ways to remove the screen and measured each against this one: edge-preserving filters, a filter that cuts the screen’s own frequencies tile by tile, shape-based filling of the dots, and thresholds that adapt to the local mean and spread. Some came close. None did better on all three cards, and most cost Bite letters that the plain blur kept.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="size">
+      <h2 id="size">The step that failed quietly</h2>
+      <p>Before the pipeline can name letters, it has to find the size the card’s text was printed at. The text on each card is shrunk to fit its box, so this differs from card to card. The pipeline searched for the size by trying a range of scales and keeping the one where a sample of letters matched the font best on average.</p>
+      <p>On a plain card that works. Letters only match the font well inside a narrow band of sizes, and the right labels halve within two percent of the best one. On textured cards, though, the average match flattened out and the search wandered off the peak. On Herald it ran to the top of its range, 1.00, and stopped there. At that size one letter matched. At 0.96, the same unchanged pipeline names 17.</p>
+      <p>So most of Herald’s failure was a size search that gave up, not the dots. The search now keeps the size at which the most letters are named. That alone lifted the starting pipeline from 297 right labels to 346, and the levelled, descreened pipeline from 456 to 535.</p>
+      <p>The last step lets each card teach the pipeline its own letterforms. The font I use to name letters is a close match to the cards’ typeface, but it isn’t the same one. After a first pass, each character with at least three confident letters on the card gets a template made from their average, and every letter is named again against those. One round lifted Dismal from 93 to 120. A second round didn’t change anything.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="result">
+      <h2 id="result">Where it ended up</h2>
+      <div class="mid scroll">
+        <table>
+          <caption>Letters named right before and after, scored against the printed text</caption>
+          <thead><tr><th>Card</th><th class="r">Printed</th><th class="r">Right before</th><th class="r">Right after</th><th class="r">Misread</th></tr></thead>
+          <tbody>
+            <tr><td>Bite</td><td class="r">289</td><td class="r">264</td><td class="r">274</td><td class="r">0</td></tr>
+            <tr><td>Dismal</td><td class="r">182</td><td class="r">32</td><td class="r">121</td><td class="r">0</td></tr>
+            <tr><td>Herald</td><td class="r">204</td><td class="r">1</td><td class="r">178</td><td class="r">0</td></tr>
+            <tr><th>Total</th><td class="r">675</td><td class="r">297</td><td class="r">573</td><td class="r">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>No letter was named as the wrong character, and one was given the wrong face. There were 12 false labels, all punctuation or touching pairs: the two halves of a double quote read as single quotes, the dots of a colon read as full stops, and the touching “ly” of “only” read as y. None of them show up often enough to reach a stack.</p>
+      <p>These settings live in their own profile. The profile for plain cards is unchanged, and with it the pipeline reproduces its earlier output exactly. On two plain cards the textured profile keeps the same letters as the plain one.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="twice">
+      <h2 id="twice">Two attempts at the same problem</h2>
+      <p>For context, I worked on this twice. The first attempt cut each pixel against its own local background, kept the art out with a box around the rules text, and when a letter’s ink didn’t match the font, tried again on the letter’s cleaner blurred outline. It reached 495 labels by its own count. The second attempt, the one described above, started fresh, and I only compared it with the first once it was finished. Scored against the same printed text, the first attempt’s best run has 481 right.</p>
+      <p>The two agree on the shape of the problem. Both found that Dismal’s dark side is lost to the fixed grey level, both estimated the background in nearly the same way, and both found that naming letters, not finding them, is where most letters on texture get lost after that.</p>
+      <p>Where they disagree is Herald. The first attempt put Herald’s failure down to dots in the letters’ coverage. Scoring against the printed text showed that the letters weren’t cleanly found either, and that the size search accounted for most of the loss. To be fair, the first attempt had seen part of this, since its box around the rules text kept the art out of the size search and took Herald from 1 to 22.</p>
+      <p>The second attempt also caught a bias the first had missed. Dismal prints the same face on a light and a dark background on one card, which makes it a fair test of any way of reading ink. If the reading is right, the same letter should carry the same amount of ink on both sides.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Ink in a letter on Dismal’s dark side, as a share of the same letter on the light side</caption>
+          <thead><tr><th>Run</th><th class="r">Letters on both sides</th><th class="r">Dark against light</th></tr></thead>
+          <tbody>
+            <tr><td>First attempt, best run</td><td class="r">9</td><td class="r">1.77</td></tr>
+            <tr><td>Levelling only</td><td class="r">4</td><td class="r">1.07</td></tr>
+            <tr><td>Second attempt</td><td class="r">15</td><td class="r">0.96</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>In the first attempt the dark screen was still counted as ink, so a letter on the dark side read three quarters heavier than the same letter on the light side. The letters were named correctly, but their shapes would have pulled every stack toward a bolder letter. The second attempt’s 0.96 is close to even, though not exactly, so I now run this test on every change to how ink is read.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="not">
+      <h2 id="not">Two ideas that didn’t hold up</h2>
+      <p>Both of these sounded right to me going in.</p>
+      <p>The first was reading the ink in light rather than in grey levels. Ink printed over texture should combine with it in a predictable way once the scan is converted to reflected light. Converting through the calibration target’s tone steps labelled 3 letters. The tone steps describe the printed target, dot gain included, as much as the scanner, so they turned most of the paper into partial ink. A standard gamma curve did better, at 237, but that’s still far below plain grey levels, because the rest of the pipeline is tuned to grey.</p>
+      <p>The second was telling ink from texture by colour. Black text against a coloured screen should separate cleanly in a colour scan. On these cards the strong screens are near neutral, mostly black dots, so colour has little to separate, as <a href={href('/notes/colour-against-grey/')}>the colour against grey note</a> found from text contrast alone. The colour scan did name more letters on Dismal and Herald, 335 against 298, but plain brightness did as well as any colour trick. The colour scan is softer, which blurs the screen a little more. On Bite, where the grey scan’s sharpness helps, colour named 57 fewer.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="left">
+      <h2 id="left">What’s still open</h2>
+      <p>The italic i and j are never named, on any card, 0 of 17. In italic the dot sits to the right of the slanted stem, further than the pipeline allows when it joins a dot to its stem. Fixing that changes how plain cards are read too, so I treated it as its own piece of work, and <a href={href('/notes/reading-every-mark/')}>Reading every mark</a> covers it.</p>
+      <p>Dismal’s dark side still loses about a third of the letters it finds, and the letters it keeps are noisier than Bite’s. A kept letter’s edge sits a median of 8.2 µm from its stack on Bite, 10.9 µm on Herald and 12.9 µm on Dismal, where one scanner pixel is 21.2 µm. Weighting each letter by the texture under it would only tighten Dismal’s stacks by about 8 percent, so I measured it and didn’t build it.</p>
+      <p>The colour scan’s advantage on heavily screened cards is real on these three cards, but I haven’t tested it beyond them. Whether to scan textured cards differently is a question for the next scan session.</p>
+    </section>
+  </div>
+</Page>

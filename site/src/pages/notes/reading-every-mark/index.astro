@@ -1,0 +1,67 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/reading-every-mark/');
+const img = (f: string) => href(`/data/notes/${f}`);
+---
+<Page title="Reading every mark" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Reading every mark</h1>
+      <p class="lede">A lot of characters print as more than one piece of ink: an i and its dot, the two halves of a double quote, a letter and its accent. Every piece the pipeline failed to join, or joined wrongly, was a letter lost or misnamed, and <a href={href('/notes/benchmark/')}>the benchmark</a> showed me which ones.</p>
+      <p>The pipeline cuts a scan into pieces of connected ink, then joins some of them into units, and a unit is what gets matched against the measuring stick font and named. Pieces below a minimum size are dropped first, since the halftone screen behind some text leaves specks of ink everywhere. Until the benchmark, I’d only checked the rules for joining on the pilot’s seven cards.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="dots">
+      <h2 id="dots">Italic i and j never got their dots</h2>
+      <p>No italic i or j had ever been named. A dot only joined a stem when it fell inside the stem’s bounding box, and an italic stem leans right, so its dot sits a few pixels past the top of the box. Small dots were also dropped as specks before they could be joined, and where two stems qualified for one dot, neither one got it.</p>
+      <figure class="mid shot strips">
+        <div><img src={img('marks_italic_i.webp')} width="1092" height="168" alt="Part of Cheering Fanatic's italic flavor text, kick 'em, bite 'em, with a red box around the stem of each i and a blue box around each dot, the dots reaching past the right edge of the red boxes" loading="lazy" /></div>
+        <figcaption>Two italic i’s in Cheering Fanatic’s flavor text, turned level. Each dot (blue) reaches past the right edge of its stem’s bounding box (red).</figcaption>
+      </figure>
+      <p>A dot now joins the stem whose top fifth it overlaps, the one it overlaps most. A piece too small to keep on its own still counts as a dot, but it only joins a stem whose top is narrow, like an i or j, so a speck of screen above an n or an m stays out. Every i and j on the benchmark’s cards now joins its dot, 488 of 488 against 297 before, and italic i and j went from none named to 155 of 176.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="punct">
+      <h2 id="punct">Punctuation comes in parts</h2>
+      <p>A double quote’s two halves were each named as a single quote, and a colon’s two dots as two full stops. Both fed the wrong stacks, and both counted as false labels, since no printed character sat where either half was.</p>
+      <p>Punctuation marks are now joined from their parts: two quote halves of one size side by side, the dot of a colon or semicolon over its lower dot or comma, and the dot of an ! or ? under a stem that’s narrow at its foot. Every part has to be a piece large enough to keep on its own, so specks of screen never join a letter. On the benchmark every quote, colon, semicolon, ! and ? came out as one unit, and false labels fell from 152 to 11 under the texture profile and from 135 to 14 under the plain one.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="size">
+      <h2 id="size">Too large to keep, too alike to tell</h2>
+      <p>Pieces taller or wider than 150 pixels were being dropped as not being letters. That sounded safe until I looked at what was over the line. A vertical bar runs from ascender to descender and printed 152 pixels tall on one card, and wide capitals, the m and the em dash all pass 150 on cards printed near full size. The limit is now 180, which holds a bar at the largest print size searched. On the pilot it kept one more letter, the Æ of Aethersnipe’s name at 152 pixels wide.</p>
+      <p>Some pairs of characters differ mostly in where they sit. An underscore and an en dash are both a flat bar, and a low double quote „ is really a high one ” moved down to the baseline. Their templates matched about equally well, and a unit whose two best matches are too close gets left unnamed. These pairs are now named as twins, and a unit tied between them takes the low one when it sits on its line’s baseline.</p>
+      <p>The underscore turned up a problem with faces, too. A unit that matches the regular and italic faces equally takes the face of the letters beside it, found in a band around its height. An underscore sits below every letter’s band, so it found none and took the regular face no matter what surrounded it. Widening the band by 0.3 em fixed it, and wrong face labels fell from 14 to 12.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="accents">
+      <h2 id="accents">Accents need to be marks of their own</h2>
+      <p>An accent joined its letter the same way a dot joins an i, so an É was one unit that no template matched, and no accent ever had a stack. That matters more than the handful of accents on these cards suggests. Most of the Google Fonts Latin Core set, the characters the finished font should carry, will be built from scanned base letters with scanned accents placed over them. So accents need units and stacks of their own, and a record of where they sit.</p>
+      <p>A dot now only joins a stem that’s narrow at its top, and two dots side by side over a letter join each other as a diaeresis rather than joining the letter. A piece left unnamed just over a letter is matched against the measuring stick’s accents alone, with more slack in size and shape, since printed accents differ from the font more than letters do. An accent over a capital takes the accent’s capital form. Each accent records its offset from its letter in x-heights, which is where a built letter will place it.</p>
+      <p>Each i and j is also split into its dotless stem and its dot, kept beside the whole letter, so the dotless i and the dot accent get stacks of their own from every i and j on every card. The dot stacks hold 137 regular and 82 italic dots, sitting 0.27 and 0.34 x-heights over their stems, with a spread of 0.013 and 0.015 x-heights. All eight accents printed on the benchmark’s cards are named right.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="total">
+      <h2 id="total">What it added up to</h2>
+      <div class="mid scroll">
+        <table>
+          <caption>Characters labelled right on the 28 benchmark cards, after each change in turn</caption>
+          <thead><tr><th>Change</th><th class="r">Plain profile</th><th class="r">Texture profile</th></tr></thead>
+          <tbody>
+            <tr><td>Before</td><td class="r">8,846</td><td class="r">9,792</td></tr>
+            <tr><td>Italic i and j join their dots</td><td class="r">8,922</td><td class="r">9,974</td></tr>
+            <tr><td>Truth fixes to kerning and merged letters</td><td class="r">8,944</td><td class="r">9,998</td></tr>
+            <tr><td>Punctuation joined from its parts</td><td class="r">8,989</td><td class="r">10,066</td></tr>
+            <tr><td>Templates for fifteen printed symbols</td><td class="r">9,018</td><td class="r">10,093</td></tr>
+            <tr><td>Tall and wide pieces kept, twins told apart</td><td class="r">9,106</td><td class="r">10,131</td></tr>
+            <tr><td>Accents kept as marks</td><td class="r">9,126</td><td class="r">10,142</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>I checked each change for what else it moved, and the pilot kept the units it had, apart from the one Æ that the larger size limit let in. The gains are small next to <a href={href('/notes/text-over-texture/')}>the texture work</a>, I’ll admit. But each one was a whole class of character the pipeline couldn’t read at all, and several of them, the quotes, the dashes and the accents, are characters the finished font needs.</p>
+    </section>
+  </div>
+</Page>

@@ -1,0 +1,88 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/pipeline-performance/');
+---
+<Page title="Fitting the full run on one machine" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Fitting the full run on one machine</h1>
+      <p class="lede">The pilot ran in minutes, but the full run as I’d planned it then would have taken hours and needed far more memory than my machine has. Three rounds of work brought it to about 12 minutes, without changing what the pipeline produces.</p>
+      <p>For context, the full run at the time was 36 cards scanned at 16 angles each: 576 scans, about 115,000 cut-out letters, and about 7,600 of them for <em>e</em> alone. The pilot the site was first built from is 7 cards. I measured everything on one laptop with 16 cores and 64 GB of memory.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="glance">
+      <h2 id="glance">The three rounds at a glance</h2>
+      <div class="mid scroll">
+        <table>
+          <caption>Time and memory from the original code to the end of the third round</caption>
+          <thead><tr><th>Measure</th><th class="r">Original</th><th class="r">Round 1</th><th class="r">Round 2</th><th class="r">Round 3</th></tr></thead>
+          <tbody>
+            <tr><td>Pilot session</td><td class="r">268 s</td><td class="r">68 s</td><td class="r">71 s</td><td class="r">55 s</td></tr>
+            <tr><td>Pilot export to the site</td><td class="r">694 s</td><td class="r">94 s</td><td class="r">90 s</td><td class="r">24 s</td></tr>
+            <tr><td>Pilot ×16, build</td><td class="r">could not run</td><td class="r">335 s</td><td class="r">420 s</td><td class="r">170 s</td></tr>
+            <tr><td>Pilot ×16, peak memory</td><td class="r">could not run</td><td class="r">21.9 GB</td><td class="r">3.9 GB</td><td class="r">4.3 GB</td></tr>
+            <tr><td>Full run, projected time</td><td class="r">3.3 h</td><td class="r">about 30 min</td><td class="r">about 35 min</td><td class="r">about 12 min</td></tr>
+            <tr><td>Full run, projected memory</td><td class="r">over 200 GB</td><td class="r">about 50 GB</td><td class="r">about 7 GB</td><td class="r">about 7 GB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The full run was never scanned, so its figures are projections. The stand-in for it is the pilot replicated sixteen times, with each copy of a scan shifted by a random fraction of a pixel: 224 scans and 37,888 letters, which is enough to show how time and memory grow.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="rule">
+      <h2 id="rule">The letters weren’t allowed to change</h2>
+      <p>Faster code is only useful if it draws the same letters. I checked every change against a rerun of the code before it, on the same day and the same machine, and compared the output glyph by glyph. A change could move a stack’s edge by at most 0.1 µm and its overlap with the font by at most 0.002, and where it could, I held it to the same results bit for bit.</p>
+      <p>That rule ended up being the hardest part of the work, and twice it caught something that wasn’t a speed problem at all.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="memory">
+      <h2 id="memory">Memory should follow a batch, not a letter</h2>
+      <p>The first round made the pilot about four times faster and projected that the full run would need 20 to 25 GB. Once I actually measured it, that projection was too low by half. The code held every copy of a letter in memory several times over while it lined them up, about 6 MB for every copy of the largest letter. Between four and sixteen times the pilot, memory grew from 6.6 to 21.9 GB. Carried out to the full run’s 7,600 copies of <em>e</em>, that’s about 50 GB of the machine’s 64.</p>
+      <p>The second round changed the code so memory no longer grows with the size of a letter. Lining up the copies now keeps only a running sum and each copy’s shift, and rebuilds a copy from its shift when it’s needed. The lined-up copies go to compressed files on disk in chunks of about 64 MB. Stacking reads them back in three or four passes, since it needs the mean before it can screen out bad copies, and the screened mean before it can measure the spread.</p>
+      <p>My first try at this moved the results in the fifth decimal place. To read each printed letter’s copies together, it lined them up in a different order. Adding the same numbers in a different order rounds differently, so the running mean each pass aligned to shifted very slightly. The same copies were kept and dropped, but the comparison wasn’t exact anymore. The second try lines the copies up in the original order and only stores them in the new one, and with that every stack, every trace and every file on the site came out identical, bit for bit.</p>
+      <p>At sixteen times the pilot, peak memory fell from 21.9 GB to 3.9 GB. The cost was time. Reading compressed chunks several times made the larger runs 17 to 25 percent slower.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="time">
+      <h2 id="time">Where the time went</h2>
+      <p>I started the third round by timing every step at sixteen times the pilot, and two things stood out.</p>
+      <p>Lining up the copies spent a quarter of its time waiting on compression. One thread compressed each chunk at a standard setting while everything else queued behind it. A lighter setting costs 7 percent more disk for half the time, and spread over eight threads a chunk takes 27 ms where it used to take 359.</p>
+      <p>Stacking was using less than two of the sixteen cores. Most of its time went into decompressing chunks on one thread and measuring outlines in code that can’t run in parallel threads. Stacking each letter in its own process, and keeping each printed letter’s average after the first pass instead of rereading all its copies, took stacking at sixteen times the pilot from 84 s to 10.</p>
+      <p>The smaller changes added up too. Aligning each copy only over the area around its ink, and starting each pass from the last pass’s answer, halved the time to line up a letter and didn’t move any shift by more than 0.004 µm. Finding each copy’s edge level by searching only the pixels that could change it gave the identical level in a quarter of the time.</p>
+      <p>The last change of the round grouped the work by card. Every view of a printed letter comes from one card, so the views are lined up and averaged within their card first, and only one averaged copy per printed letter goes on to be stacked with the other cards. It’s the same total work, but it spreads over more cores. The build at sixteen times the pilot went from 425 s at the start of the round to 170 s.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="fit">
+      <h2 id="fit">The stacks matched, but the numbers didn’t</h2>
+      <p>Partway through the third round, a comparison failed. The stacks themselves had moved by less than 0.01 µm, well inside the limit. But the published distance between each stack and the font had moved by up to 0.18 µm, and nearly every letter’s figure had gone up by a few hundredths.</p>
+      <p>The difference turned out to be in how the font is placed over the stacks, not in the stacks. The font is sized, turned and positioned once, fitted to <em>e</em>, and every other letter is measured through that placement. A change of three parts in a hundred thousand in <em>e</em>’s stack had moved the fitted rotation from −0.0005 to −0.0001 radians, and that rotation moved every other letter’s figure a little.</p>
+      <p>A rotation fitted to one letter is only loosely pinned down, so some movement is expected, but this was more than that. Holding the rotation fixed at small steps and fitting everything else showed a cost surface full of fine dips. The fit measured each point’s distance to the nearest vertex of the font’s outline, and that distance has a small kink midway between vertices. The fit just settled into whichever dip its starting point led to.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>The fitted rotation of <em>e</em>, in radians, before and after a tiny change to its stack</caption>
+          <thead><tr><th>Distance to the outline</th><th class="r">Before</th><th class="r">After</th><th class="r">Fit time</th></tr></thead>
+          <tbody>
+            <tr><td>Nearest vertex, every font unit</td><td class="r">−0.00051</td><td class="r">−0.00012</td><td class="r">0.6 to 0.8 s</td></tr>
+            <tr><td>Nearest vertex, every quarter unit</td><td class="r">−0.00038</td><td class="r">−0.00038</td><td class="r">2.1 to 2.7 s</td></tr>
+            <tr><td>Nearest segment, every font unit</td><td class="r">−0.00033</td><td class="r">−0.00033</td><td class="r">0.4 s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Measuring to the outline’s segments instead removes the kinks, and it’s faster too. Both the fit and the published figures now measure distance that way. Refitted with it, the two runs agree to within 0.008 µm, and the figures on the site move by less than a tenth of a micrometre when it’s re-exported.</p>
+      <p>A speed change is what found this, but it was a measurement problem that had been there all along. Any small change to <em>e</em> could have moved every letter’s figure.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="site">
+      <h2 id="site">What changed on the site</h2>
+      <p>Each round was held to the rule against the round before it, but small allowed changes can add up over three rounds. So I compared the end of the third round with the session the site was published from, before any of this work. Every letter keeps the same number of copies. The traced outlines moved by a median of 0.69 µm in shape and at most 0.93 µm. That’s less than the site’s own simplification of each path for the browser, which moves outlines by a median of 1 µm, and about a seventh of a pixel on the grid the letters are stacked on.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="since">
+      <h2 id="since">Since then</h2>
+      <p>The scan plan has changed since. Each card is now scanned twice, at 0 and 90 degrees, 72 scans in all rather than 576, because further angles added data without adding detail at the scanner’s resolution. <a href={href('/notes/two-angles/')}>Sixteen angles to two</a> explains the change. The full run is now an eighth of the size these rounds were built for, so it fits with plenty of room. What the work leaves behind is code whose memory doesn’t grow with a letter’s size, and a font fit that no longer moves for no reason.</p>
+    </section>
+  </div>
+</Page>

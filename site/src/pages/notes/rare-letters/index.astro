@@ -1,0 +1,77 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/rare-letters/');
+---
+<Page title="Letters printed too few times" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Letters printed too few times</h1>
+      <p class="lede">An e prints dozens of times on every card. A capital F, a digit or a semicolon might print once or twice across all of them. Stacking needs a lot of copies, so most of the characters a font has to carry didn’t have an outline at all.</p>
+      <p>A stack averages every printed copy of a letter so the noise of print and scan cancels out. The pipeline only stacked a glyph from 16 copies, and only traced an outline from 12. On the 28 cards of <a href={href('/notes/benchmark/')}>the benchmark</a>, under the texture profile, that left 57 glyphs traced across both faces. Capitals, digits, most punctuation and the rarer lower case letters had nothing.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="few">
+      <h2 id="few">One copy isn’t enough, and neither is the font</h2>
+      <p>A glyph with only a few copies can still be stacked, but its stack keeps most of the noise of each copy. The measuring stick font has an outline for every character, but it’s a reference, and its shapes are close to the printed type rather than the same. Neither one alone is a good answer. What I wanted to know was whether the two together do better than either.</p>
+      <p>That can be tested on glyphs that do have plenty of copies. For 31 well sampled glyphs, I held out a few copies, stacked them alone, and compared them with the stack of all the rest, which stands in for the true printed shape. The font here was drawn with the edge width of the face’s first fitted glyph, before the print look described below.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Distance from the stack of the held out copies, in µm, for 31 well sampled glyphs</caption>
+          <thead><tr><th>Copies</th><th class="r">Their own stack</th><th class="r">Font outline alone</th><th class="r">The two blended</th></tr></thead>
+          <tbody>
+            <tr><td>One</td><td class="r">9.19</td><td class="r">7.24</td><td class="r">5.71</td></tr>
+            <tr><td>Two</td><td class="r">6.44</td><td class="r">7.20</td><td class="r">4.77</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>From one copy, the font’s outline is closer than the copy itself. From two, the copies win. Blended, they beat both by a margin, which makes sense to me: the font’s outline is steady where the copies are noisy, and the copies carry the print’s shape where the font differs from it.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="blend">
+      <h2 id="blend">The font has to be drawn the way the cards print</h2>
+      <p>To blend with a stack, the font’s outline is drawn into the same grid and placed with the same fit as the face’s scanned glyphs, then counted as if it were a few more printed copies. A stack made from three copies, with the font counted as four, then gets traced like any other.</p>
+      <p>An outline drawn with a perfectly sharp edge still looks nothing like a scanned letter, though. Ink spreads on paper, the scanner softens every edge, and the print rounds off fine corners. So each face now has a print look: the ink spread, edge width and rounding that draw the font closest to that face’s own well sampled stacks, taken as the median over all of them. The regular face spreads by about 12 µm and the italic by a little more, and the regular rounds its corners more than the italic does. The font gets drawn with that look before it’s blended.</p>
+      <p>Rounding turned out to be most of the difference. I held out each well sampled glyph in turn and drew its font outline with the median look of the face’s other glyphs. It landed a median 3.83 µm from its stack in the regular face and 4.63 in the italic, against 6.89 and 8.98 with the sharper edge used before. That’s closer than the glyph’s own printed copies sit to that stack, at 8.21 and 9.43 µm. With the look, the font is worth four printed copies in the blend, and the blend gets better again.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Distance from the stack of the held out copies, in µm, blended with the font drawn each way</caption>
+          <thead><tr><th>Copies</th><th class="r">Sharper edge</th><th class="r">Print look</th></tr></thead>
+          <tbody>
+            <tr><td>One</td><td class="r">5.71</td><td class="r">3.88</td></tr>
+            <tr><td>Two</td><td class="r">4.77</td><td class="r">3.62</td></tr>
+            <tr><td>Four</td><td class="r">3.81</td><td class="r">3.17</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>When the blend first went in, traced glyphs on the benchmark rose from 57 to 166, 109 of them leaning on the font. Blending moved those 109 a median of 4.5 µm from their own stacks. The labels, and every stack and trace of a well sampled glyph, didn’t change.</p>
+      <p>I didn’t want any of this to be hidden, so each blended glyph carries that fact with it. Its page, the <a href={href('/glyphs/')}>character sheet</a> and the <a href={href('/data/')}>data page</a> all mark it, and its trace records how far the blend moved it from its own stack.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="built">
+      <h2 id="built">Most characters never print at all</h2>
+      <p>The finished font should carry the Google Fonts Latin Core set, which is several hundred characters. Most of them never print on these cards in either face.</p>
+      <p>The measuring stick builds most of those from parts, and the pipeline now does the same. A composite like É is its parts placed at the font’s own offsets, a scanned or blended E and an accent, where <a href={href('/notes/reading-every-mark/')}>the accents</a> are scanned too wherever they print. A combining accent is its spacing accent centred with no advance. A dotless ȷ, which the measuring stick doesn’t draw, is a j less its dot. Anything else is the font’s own outline drawn with the face’s print look.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Glyphs built without a stack of their own, on the benchmark</caption>
+          <thead><tr><th>Built as</th><th class="r">Regular</th><th class="r">Italic</th></tr></thead>
+          <tbody>
+            <tr><td>Composed from other glyphs</td><td class="r">138</td><td class="r">136</td></tr>
+            <tr><td>Derived from one glyph</td><td class="r">14</td><td class="r">14</td></tr>
+            <tr><td>The font’s outline with the print look</td><td class="r">82</td><td class="r">81</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every character of the set but one now has a trace or a build in both faces. The exception is the capital sharp s, ẞ, which the measuring stick doesn’t draw.</p>
+      <p>Built glyphs stay out of the site’s data, since their outlines would really be the font’s. The character sheet marks each one with a dark border and doesn’t draw it, and the exported data records what each was built from.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="next">
+      <h2 id="next">More scans will shrink the blend</h2>
+      <p>The blend is a stand in, and I think of it that way. Every new card adds copies, and a glyph that reaches 12 gets traced from its own stack alone and stops leaning on the font. The full scan list should lift some capitals and digits past that line. The characters that never print, most of the accented letters and the rarer symbols, will stay built from parts and from the font’s outline.</p>
+    </section>
+  </div>
+</Page>
