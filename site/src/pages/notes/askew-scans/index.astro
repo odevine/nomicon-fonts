@@ -1,0 +1,50 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/askew-scans/');
+const img = (f: string) => href(`/data/notes/${f}`);
+---
+<Page title="A degree askew" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>A degree askew</h1>
+      <p class="lede">Nothing on the scanner bed sits perfectly square. Most of the pipeline never notices, but twice in the same week, a fraction of a degree broke a measurement that assumed level lines.</p>
+      <p>A card laid in its jig, or the calibration sheet laid on the glass, always ends up turned by a little. In the pilot the cards sat 0.1 to 0.8 degrees off square, scan by scan. The three cards in <a href={href('/notes/text-over-texture/')}>Text printed over texture</a> sat about 0.8 degrees off, with the card outline and the lines of text agreeing to within a fifth of a degree.</p>
+      <p>That sounds like nothing, but distance multiplies it. Across a full line of rules text, about 2,600 scanner pixels, 0.8 degrees is a rise of 37 pixels, about 40 percent of the height of a capital letter.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="absorbed">
+      <h2 id="absorbed">Most of the time the tilt does no harm</h2>
+      <p>The stacks have always handled it. Before the copies of a letter are lined up, each scan’s turn, scale and slant are fitted against the mean of its card, and every letter is resampled through that fit. Over the hundred or so pixels of a single letter, the tilt is a pixel or two, well within what the fit takes out. The pipeline also warns when a card sits more than two degrees from the angle the scan list gives it, which usually means a card slipped in its jig.</p>
+      <p>The trouble came from two measurements that look along a long straight line and assume it’s level.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="ruler">
+      <h2 id="ruler">The calibration rulers</h2>
+      <p>The calibration target carries two printed rulers, one along each axis. Reading their ticks gives the scanner’s scale in each direction, and the scan is only accepted if the two agree to within 0.2 percent. A new calibration pair failed that check by a wide margin, 0.77 percent in grey and up to 5 percent in colour, where the pilot’s pair had agreed to 0.033 percent.</p>
+      <p>The sheet sat about a degree askew in the 90 degree scans, so each ruler’s baseline drifted 38 to 47 pixels along its length. The reader looked for the baseline in a fixed window around one row, which only works while a ruler is level to about half a degree. It found the baseline along a third of the ruler. Then it decided the ticks hung on the wrong side of it, because the slightly grey paper and a printed crosshair outweighed the ticks in a sum of darkness, and it read a band that wandered off the ticks. It found 12 to 30 of the 61.</p>
+      <p>The reader now follows the baseline along the ruler in stretches of 100 pixels before it looks for ticks, and decides which side they hang on by counting ink pixels instead of summing darkness. Every ruler in the pair reads all 61 ticks, and the pair passes at 0.18 percent. The pilot’s calibration comes out the same to four decimal places, and a test now checks a ruler printed like the target’s, a degree askew either way.</p>
+      <p>I’m not fully satisfied with that result. The pair still reads five times further apart than the pilot’s did, close to the limit. Whether that comes from the scanner or from how the sheet lay should show in the next calibration pair. <a href={href('/notes/colour-against-grey/')}>Colour scans against grey</a> is the work that turned this up.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="truth">
+      <h2 id="truth">The boxes around every printed letter</h2>
+      <p>To score how many letters the pipeline reads on a card, every printed letter has to be placed first. I do that by fitting the measuring stick font to each line of text, letter by letter. The first version placed each line on one level baseline and let each letter move up to 3 pixels from it, which couldn’t follow a line that rises 37 pixels from one end to the other.</p>
+      <figure class="mid shot strips">
+        <div><p class="lab">Fitted on a level line</p><img src={img('askew_level_fit.webp')} width="1104" height="145" alt="The two ends of a line of Bite Down on Crime's rules text, turned level, with red boxes that tilt against the letters, sitting high on the left and low on the right" loading="lazy" /></div>
+        <div><p class="lab">Turned level first</p><img src={img('askew_turned_fit.webp')} width="1104" height="145" alt="The same two ends with blue boxes that sit on every letter" loading="lazy" /></div>
+        <figcaption>The left and right ends of the second line of Bite Down on Crime’s rules text, at full scanner resolution, with the box fitted to each printed letter. The scan is turned level here, so the first fit’s boxes, level in the scan, show the 0.8 degree tilt the text had.</figcaption>
+      </figure>
+      <p>The fit now measures the tilt of the text, turns the image level, fits there, and turns each box back into the scan as a slightly tilted outline. On Bite the median match between each letter and the font rose from 0.68 to 0.94, and more than half of the boxes moved by over 3 pixels, up to 42 on Herald.</p>
+      <p>The part that bothers me is that the scores barely changed, which is how this could have gone unnoticed. A letter counts as found when its centre falls within 6 pixels of its box, and that slack absorbed most of the drift. Rescored against the levelled boxes, no card’s count of found letters moved by more than 3. The problem showed up in the overlays, checked by eye along every line, and in the match scores, but not in the numbers that came out at the end.</p>
+      <p><a href={href('/notes/text-over-texture/')}>Text printed over texture</a> uses these boxes to score every run.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="now">
+      <h2 id="now">Measure the tilt before trusting a line</h2>
+      <p>Both fixes come down to the same thing: they measure the tilt before relying on a straight line. The ruler reader follows its baseline instead of assuming one row, and the letter boxes are fitted on text that’s been turned level. I think anything new that looks along a long line, whether that’s a rule, a baseline or the edge of a box, should do the same, and its overlay should be checked at both ends of the line, where the tilt is largest.</p>
+    </section>
+  </div>
+</Page>

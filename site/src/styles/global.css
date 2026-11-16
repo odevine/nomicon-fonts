@@ -39,9 +39,9 @@ a:hover { color: var(--red); }
 .skip { position: absolute; left: 1rem; top: -4rem; background: var(--paper); padding: 0.5rem 1rem; z-index: 10; }
 .skip:focus { top: 1rem; }
 
-header.site { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 2rem; align-items: baseline; padding: 1.25rem var(--inset); }
+header.site { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; align-items: baseline; padding: 1.25rem var(--inset); }
 header.site .mark { font-size: 1.4rem; font-weight: 600; text-decoration: none; letter-spacing: 0.01em; }
-header.site nav ul { display: flex; flex-wrap: wrap; gap: 0.6rem 1.25rem; list-style: none; margin: 0; padding: 0; font-size: 0.85rem; font-variant: small-caps; letter-spacing: 0.06em; }
+header.site nav ul { display: flex; flex-wrap: wrap; gap: 0.6rem 0.8rem; list-style: none; margin: 0; padding: 0; font-size: 0.85rem; font-variant: small-caps; letter-spacing: 0.06em; }
 header.site nav a { text-decoration: none; position: relative; }
 /* the current page is marked by a printed full stop */
 header.site nav a[aria-current='page']::after { content: ''; position: absolute; left: 50%; bottom: -0.55em; width: 0.5em; height: 0.5em; transform: translateX(-50%); background: var(--red); -webkit-mask: var(--dot-2) center / contain no-repeat; mask: var(--dot-2) center / contain no-repeat; }
@@ -237,3 +237,13 @@ input[type='range']::-moz-range-thumb { width: 1.5rem; height: 1.5rem; border: 0
 @supports (corner-shape: squircle) {
   .toggles, .doors a, .glyphmap a, .glyphmap li.blank, .legend-row span::before, .stack-svg, .btn, .panel, .setter textarea, .set-out, .lab-pair, .picker span { corner-shape: squircle; }
 }
+
+/* notes: scan figures on a soft fill, labelled strips, and tables set inside sections */
+.kicker a { color: inherit; }
+.shot { margin: 1.5rem 0; padding: 1rem; border-radius: var(--r-lg); background: var(--fill); }
+.shot img { display: block; width: 100%; height: auto; border-radius: 0.4rem; }
+.shot figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.6rem; max-width: var(--measure); }
+.strips { display: grid; gap: 0.9rem; }
+.strips .lab { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--red-text); margin: 0 0 0.3rem; }
+.strips figcaption { margin-top: 0; }
+section > .mid.scroll, section > .wide.scroll { margin-block: 1.25rem; }

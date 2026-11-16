@@ -70,8 +70,8 @@ function body(rel) {
 }
 
 // raw crops, step images and their transforms are served as they are
-const STATIC_DIRS = ['steps', 'pixels', 'noise'];
-const staticFile = (rel) => (/^(steps|pixels|noise)\/[\w.-]+\.(json|webp)$/.test(rel) && existsSync(resolve(root, rel)) ? resolve(root, rel) : null);
+const STATIC_DIRS = ['steps', 'pixels', 'noise', 'notes'];
+const staticFile = (rel) => (/^(steps|pixels|noise|notes)\/[\w.-]+\.(json|webp)$/.test(rel) && existsSync(resolve(root, rel)) ? resolve(root, rel) : null);
 
 export default function servedData() {
   let base = '/';

@@ -1,0 +1,20 @@
+---
+import Page from '../../layouts/Page.astro';
+import { href, notes, noteDate } from '../../lib/site';
+---
+<Page title="Notes" description="Longer write-ups of problems I ran into while building the scan and cleaning pipeline.">
+  <article>
+    <p class="kicker">Notes</p>
+    <h1>Notes</h1>
+    <p class="lede">Some problems took more than a step on the cleaning page to solve. These are the longer accounts of them: what I tried, what I measured, and what’s still open.</p>
+  </article>
+  <ul class="doors notes-list">
+    {[...notes].sort((a, z) => z.date.localeCompare(a.date)).map((n) => (
+      <li><a href={href(n.path)}><strong>{n.title}</strong><time datetime={n.date}>{noteDate(n.date)}</time><span>{n.blurb}</span></a></li>
+    ))}
+  </ul>
+</Page>
+<style>
+  .notes-list { grid-template-columns: minmax(0, 1fr); }
+  .notes-list time { display: block; font-family: var(--label); font-style: italic; font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0 0.5rem; }
+</style>

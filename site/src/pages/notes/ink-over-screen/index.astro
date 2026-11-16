@@ -1,0 +1,135 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/ink-over-screen/');
+
+const img = (f: string) => href(`/data/notes/${f}`);
+const model = [
+  { file: 'fm_model_plain.webp', lab: 'Plain side', alt: 'Three letters, a, e and italic o, printed on the light side of Dismal Backwater' },
+  { file: 'fm_model_paste.webp', lab: 'Pasted on the screen', alt: 'The same three letters laid on the dark screen as solid ink, with smooth clean edges' },
+  { file: 'fm_model_model.webp', lab: 'Printed by the model', alt: 'The same three letters printed onto the dark screen by the model, with dots showing through and scalloped edges' },
+  { file: 'fm_model_real.webp', lab: 'Real dark side', alt: 'Real copies of a, e and italic o from the dark side of Dismal Backwater, with dots showing through and scalloped edges' },
+];
+const net = [
+  { file: 'fm_net_scan.webp', lab: 'Scan', alt: 'Four letters on strong screen: a and italic o from Dismal Backwater, n from It That Heralds the End and e from Barad-dûr' },
+  { file: 'fm_net_today.webp', lab: 'Coverage before', alt: 'The four letters as the pipeline read them before, with ragged edges where screen dots touch them' },
+  { file: 'fm_net_net.webp', lab: 'Coverage from the network', alt: 'The four letters as the network reads them, with smoother edges' },
+];
+---
+<Page title="Ink printed over a screen" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Ink printed over a screen</h1>
+      <p class="lede">Once the textured cards could be read, their letters were still noisier than letters on plain paper. This note covers how I fitted a model of black ink printed over a halftone screen, what it ruled out, and how it ended up as training data for a small network that reads those letters.</p>
+      <p><a href={href('/notes/text-over-texture/')}>Text printed over texture</a> ends with letters that are found and named, but whose edges still carry the screen behind them. On its three cards, a kept letter’s edge sat a median of 12.9 µm from its stack on Dismal Backwater, against 8.2 µm on Bite Down on Crime.</p>
+      <p>I measured the work here on the wider <a href={href('/notes/benchmark/')}>benchmark</a>, built once the three card work was done. It scores the textured profile against the printed text of 28 cards, 56 scans and 11,098 characters, with each character placed by fitting the measuring stick font to its line, the same way as the three cards. Four of the cards have text on strong screen: Dismal Backwater, It That Heralds the End, Kozilek’s Unsealing and Barad-dûr. Dismal is the only one that also has text on plain background.</p>
+      <p>On the benchmark, with each card stacked on its own, a letter on Dismal’s dark side sat a median 15.3 µm from its stack, against 8.7 µm for a letter on the light side of the same card. Across the four cards with text on strong screen the median was 10.4 µm, and on plain backgrounds 6.0 µm.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="test">
+      <h2 id="test">One card can test itself</h2>
+      <p>Dismal Backwater prints the same face on a light and a dark background, on one card from one print run. That makes it a direct test of any idea about how ink and screen combine. Take a letter from the light side, print it onto bare screen from the dark side using that idea, and see whether the result looks like the real dark side letters to the pipeline.</p>
+      <p>Three things have to match at the same time. The first is the letter’s weight, meaning its total ink. The second is the share of letters the pipeline names right, split into regular and italic, since italic suffers far more on screen. The third is the edge’s profile, how the grey rises from ink to background just outside the letter.</p>
+      <p>I tried six simple ways of laying ink over the screen first, and none of them matched all three. It turns out real ink here isn’t opaque. Its core reads 18 on the dark side against 22 on the light side, so some of the screen shows through.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="model">
+      <h2 id="model">Three numbers were enough</h2>
+      <p>The model that fits has three parameters. The ink is partly clear, so the screen under it still darkens the result. Ink and screen get blurred together by the scanner after they combine. And the letter’s edge follows the dots. It moves out over a dot and in over the gap between dots, by an amount in proportion to how dark the dot is, which reshapes the edge without changing the letter’s weight.</p>
+      <p>Fitting over a grid of opacity and blur, and then the edge term, leaves the ink nearly clear: under it, nine tenths of the screen’s density still shows, darkened by the ink. The scanner’s blur is 0.5 px and the edge term 1.25. I printed each of Dismal’s rightly named plain glyphs this way onto free patches of the dark screen on its own scan, four placements of 61 and 68 glyphs on the card’s two scans, and had the unchanged pipeline read and name them.</p>
+      <figure class="mid shot strips cols cols-4">
+        {model.map((m) => (
+          <div><p class="lab">{m.lab}</p><img src={img(m.file)} width="264" height="840" alt={m.alt} loading="lazy" /></div>
+        ))}
+        <figcaption>A light side a, e and italic o from Dismal Backwater, the same letters laid onto bare dark screen as solid ink and printed by the model, beside real copies from the dark side. The model’s letters show the screen through the ink and scalloped edges, just like the real ones.</figcaption>
+      </figure>
+      <div class="mid scroll">
+        <table>
+          <caption>The model’s letters against the real dark side, on Dismal’s two scans</caption>
+          <thead><tr><th>Measure</th><th class="r">Model</th><th class="r">Real</th></tr></thead>
+          <tbody>
+            <tr><td>Weight, as a share of the light side letter</td><td class="r">0.989 and 0.979</td><td class="r">0.983 and 0.982</td></tr>
+            <tr><td>Italic named right</td><td class="r">70% and 38%</td><td class="r">64% and 36%</td></tr>
+            <tr><td>Regular named right</td><td class="r">77% and 90%</td><td class="r">87% and 85%</td></tr>
+            <tr><td>Edge grey 2 to 6 px out, screen averaged</td><td class="r">0.846 to 0.988</td><td class="r">0.835 to 0.979</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The edge term is what makes italic hard. Without it, the same opacity and blur name 86 and 83 percent of italic letters right, against the real 64 and 36. A letter whose edge stays smooth over the screen is easy to read, and the real ones aren’t. Letting the ink only grow over dark dots, rather than move both ways, made letters 8 to 37 percent too heavy.</p>
+      <p>Most models in the grid that matched the weight named italic too easily, and the ones that matched italic did it with a blur of 1.5 px, which softened the edge. The edge term was the one change that matched both.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="ring">
+      <h2 id="ring">The light ring wasn’t what I expected</h2>
+      <p>One measure didn’t match. The benchmark reads a light ring 3 to 5 px outside letters on the dark side, at 1.03 of the background level, while the model’s letters read 0.98 there.</p>
+      <p>My first guess was prepress. A knockout or trap leaves a thin unscreened band around black text, which would read as a light ring. Printing the model with a 2 px knockout did bring the benchmark’s ring to 1.02, but it lifted the edge profile to 0.944 at 3 px against the real 0.902, and made letters 15 percent light. The scans don’t show that band.</p>
+      <p>The ring turned out to be the edge locking onto the screen’s lattice. Measured from each letter’s own outline, the real dark side’s grey rises and falls with the screen’s period outside the edge, 1.007, 0.946 and 1.032 at 3, 6 and 9 px. The same outlines moved onto bare screen nearby read flat. With the screen averaged by a 2 px blur, the dark side’s profile matches the light side’s, with no lift.</p>
+      <p>A photograph of the word “gain” on Dismal’s dark side settled how the card was printed. The black is overprinted on the screen with no knockout and no trap line. The dots run right up to every stroke and fill every counter, the strokes’ edges are scalloped where dots under them merge into the black, and pale specks show through inside the strokes. That’s the partly clear ink and the edge that follows the dots.</p>
+      <p>The model reproduces the lock at the screen’s later gaps, but not at its first, 4 px out, where the real edge peaks at 1.054. Sharpening the letter’s own edge moved the model’s peak closer, to 1.017 at 3 px, and the ring to 0.99 at most, but I didn’t keep it. So I recorded the model as not passing its check on the ring, and waived that check for what came next, since the photograph shows what the ring actually is.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="subtract">
+      <h2 id="subtract">Running the model backwards didn’t work</h2>
+      <p>With a model of how the screen gets into a letter, my first idea was to take it back out. For each letter on strong screen, I fitted the screen’s lattice from the bare texture around it, a period of 5.2 to 6.2 px, extended it under the letter, and removed its density through the model.</p>
+      <p>Read from the raw scan, Dismal’s dark side got worse, from 15.3 to 17.1 µm, and its letters came out 9 percent heavy. Blurred afterwards, the way the pipeline’s own coverage is, Herald and Kozilek’s Unsealing improved a little, but Dismal still rose, to 16.1 µm and 5 percent heavy. Subtracting the screen’s density can’t undo an edge that has moved to follow the dots, since that movement is in the ink’s outline, and I suspect that’s why Dismal didn’t improve.</p>
+      <p>I also tried splitting each letter’s window into a flat part and an oscillating part, by total variation, and didn’t keep that either. It added edge noise, or it lowered noise on plain cards as much as on textured ones, rounding corners and serifs as it went.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="learn">
+      <h2 id="learn">Learning the inverse instead</h2>
+      <p>The model is good at going forward, from a clean letter to a textured one, and that’s exactly what training data needs. A network can learn the way back from examples, without a closed form for it.</p>
+      <p>The examples are 3,360 letters on plain background from the 24 cards with no strong screen. Each is printed by the model onto a free patch of bare screen from one of the four strongly screened cards, with the three parameters varied around the fit, 4,000 examples a card. The network learns to take the textured letter back to the coverage the pipeline read for it on plain paper.</p>
+      <p>The network is small on purpose: five layers of 3 by 3 filters, with a reach of 21 px, under half a letter’s height. That’s enough to learn how ink meets screen at an edge, and too little to learn a whole letter’s shape. It sees the raw grey over the background level around the letter, and that level.</p>
+      <p>To test it on texture it had never seen, I trained it twice: once on Herald’s and Kozilek’s screens to read Dismal and Barad-dûr, and once the other way round. On model letters printed over a held-out card’s screen and put through the whole pipeline, its coverage sat 7.5 to 10.6 µm from the true letter, against 11.2 to 13.3 µm for the pipeline’s own, and was closer on 95 to 100 percent of letters.</p>
+      <figure class="mid shot strips cols cols-3">
+        {net.map((m) => (
+          <div><p class="lab">{m.lab}</p><img src={img(m.file)} width="264" height="1128" alt={m.alt} loading="lazy" /></div>
+        ))}
+        <figcaption>Real letters on strong screen: a and italic o from Dismal Backwater, n from It That Heralds the End and e from Barad-dûr, each read by the network trained without its card’s screen.</figcaption>
+      </figure>
+    </section>
+
+    <section class="flow" aria-labelledby="result">
+      <h2 id="result">What the network changed</h2>
+      <p>Labelling matches the font against coverage too, so cleaner coverage means more letters named as well as steadier edges. Over the 28 benchmark cards and their 11,098 printed characters, with the network trained on all four strong cards:</p>
+      <div class="mid scroll">
+        <table>
+          <caption>The textured profile before and with the network</caption>
+          <thead><tr><th>Measure</th><th class="r">Before</th><th class="r">With the network</th></tr></thead>
+          <tbody>
+            <tr><td>Named right</td><td class="r">10,207</td><td class="r">10,338</td></tr>
+            <tr><td>Regular on strong screen named right</td><td class="r">91.1%</td><td class="r">95.9%</td></tr>
+            <tr><td>Italic on strong screen named right</td><td class="r">67.3%</td><td class="r">86.2%</td></tr>
+            <tr><td>Wrong character, wrong face, false</td><td class="r">0, 1, 1</td><td class="r">0, 1, 1</td></tr>
+            <tr><td>Edge from stack on strong screen, median card</td><td class="r">10.41 µm</td><td class="r">7.62 µm</td></tr>
+            <tr><td>Edge from stack on plain, median card</td><td class="r">5.97 µm</td><td class="r">5.97 µm</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Even read by the network that never saw its screen, each strong card still improves. Dismal names 293 letters right against 258, Barad-dûr 260 against 199, Herald 383 against 369 and Kozilek 422 against 419. On the other 24 cards, three scans change by a single letter.</p>
+      <p>The network is opt in. A session only reads it when it’s given the weights, and the plain profile reads exactly as before. The weights are learned from card scans, so they stay out of the repository, like the scans themselves. Training runs on torch in about a minute, but reading runs on a small numpy version of the same network, which matches it to within 6 × 10<sup>-7</sup> at 13 ms a letter, so the pipeline itself doesn’t depend on torch.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="gap">
+      <h2 id="gap">A gap I left open on purpose</h2>
+      <p>One thing did get worse. The benchmark compares the ink in Dismal’s letters on strong screen with the same letters on plain, scan by scan. Before the network the dark side read 0.983 and 0.982 of the light side on the card’s two scans, under 2 percent light. With the network it reads 0.949 and 0.956, so the dark side letters now read 5 to 7 percent light. <a href={href('/notes/text-over-texture/')}>Text printed over texture</a> gives 0.96 for a similar comparison over 15 letters read on both sides, measured on an earlier state of the pipeline. Model letters over held-out screen come back within 1 percent of their true weight, so the real dark side’s ink differs from the model in a way that shows in weight and not in shape.</p>
+      <p>Before refitting the model to close that gap, I measured whether it even reaches the font. A traced outline follows the half coverage contour of its glyph’s stack. For each of the 69 glyphs with copies on strong screen and more on plain, I compared the outline with and without the strong screen copies, and against leaving out as many random plain copies as a control.</p>
+      <p>Leaving out the strong screen copies moves the outline a median of 1.09 µm, against 0.89 µm for the control, and at most 5.36 µm, on an A of 13 copies. Every move is smaller than the 5.97 µm a plain copy sits from its stack. Without the network the figures are the same, 1.09 µm and at most 4.64. The pipeline sets each scan’s ink level from its well sampled glyphs, so a light dark side shifts very little in a stack. The gap doesn’t reach the traces, so I didn’t fit the model again.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="left">
+      <h2 id="left">What’s still open</h2>
+      <p>The model rests on one card. Dismal is the only one of the 28 with text on both plain and strong screen, so I couldn’t check its fit on a second card. A gradient card from the remaining scans would test it, and would show whether the weight gap belongs to Dismal or to the screen.</p>
+      <p>The ring at the first gap, 4 px out, still isn’t reproduced. Since the photograph shows dots merging into the strokes, I think the model’s edge term may be too smooth at that scale, but nothing that reaches the traces depends on it.</p>
+    </section>
+  </div>
+</Page>
+<style>
+  .cols { gap: 0.9rem 0.6rem; }
+  .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols figcaption { grid-column: 1 / -1; }
+  .cols img { image-rendering: pixelated; }
+</style>
