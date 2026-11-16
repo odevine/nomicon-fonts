@@ -21,7 +21,7 @@ Several shifted passes of one card can be given together. `superres.py` register
 
 ## Writing a cards file
 
-A cards file is the one place a scan folder records what was scanned: every card, its printed text, and each scan of it with the angle it lies at. `prepare.py`, `session.py`, `bench.py` and `pipeline.py` all read it. This one covers one card at the four jig angles and the same four turned a quarter, half of the sixteen 22.5 degree steps, and a second card scanned upright and turned a quarter. The file names give the angle in tenths of a degree.
+A cards file is the one place a scan folder records what was scanned: every card, its printed text, and each scan of it with the angle it lies at. `prepare.py`, `session.py`, `bench.py` and `pipeline.py` all read it. This one covers two cards, each scanned upright and turned a quarter, the two scans every card gets. The file names give the angle in degrees.
 
 ```json
 {
@@ -31,14 +31,8 @@ A cards file is the one place a scan folder records what was scanned: every card
    "name": "Reef Worm",
    "text": {"rules": ["<first rules paragraph as printed>", "<second>"], "flavor": ["<flavor text as printed>"]},
    "scans": [
-    {"file": "reefworm_0000.png", "angle": 0},
-    {"file": "reefworm_0225.png", "angle": 22.5},
-    {"file": "reefworm_0450.png", "angle": 45},
-    {"file": "reefworm_0675.png", "angle": 67.5},
-    {"file": "reefworm_0900.png", "angle": 90},
-    {"file": "reefworm_1125.png", "angle": 112.5},
-    {"file": "reefworm_1350.png", "angle": 135},
-    {"file": "reefworm_1575.png", "angle": 157.5}
+    {"file": "reefworm_000.png", "angle": 0},
+    {"file": "reefworm_090.png", "angle": 90}
    ]
   },
   {
@@ -60,9 +54,9 @@ A cards file is the one place a scan folder records what was scanned: every card
 
 **`text` holds the card's printed text, its `rules` and `flavor` each a list of the section's paragraphs.** A card with no flavor text leaves out `flavor`. Mana symbols are written as `{T}` or `{G}`, and the text is written as printed, since the benchmark's truth is fitted to it. Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and any other italic text goes between underscores, as Photo Op's `any _Magic_ card`. A printed underscore is written `\_`, which the JSON file spells `\\_`, as in Steel Overseer's `ADMIN\\_USER\\_GROUP`, and any other backslash is printed as it stands. `name` is the printed name, `set` and `number` identify the printing, and `box` gives the rules box as y0 y1 x0 x1 fractions of the card for a frame that puts it elsewhere.
 
-**`angle` is the card's counterclockwise turn in degrees as it appears in the scan image.** The card lies face down on the glass, so a turn that looks counterclockwise from above shows up clockwise in the scan. Write the jig's angle plus any quarter turns, such as 112.5 for the 22.5 degree jig turned a quarter. Negative angles work too, and -22.5 is the same as 337.5. The card outline refines the angle only within a quarter turn, so the file has to give the quarter turn. If every off-axis scan warns that it is turned about twice its notch the other way, the jig turns against this convention, and each angle should be written as 360 minus the angle, such as 337.5 in place of 22.5.
+**`angle` is the card's counterclockwise turn in degrees as it appears in the scan image.** The card lies face down on the glass, so a turn that looks counterclockwise from above shows up clockwise in the scan. Write 0 for the scan in the jig's first corner and 90 for the scan a quarter turn on. Negative angles work too, and -90 is the same as 270. The card outline refines the angle only within a quarter turn, so the file has to give the quarter turn. If every turned scan warns that it is turned about twice its notch the other way, the jig turns against this convention, and each angle should be written as 360 minus the angle, such as 270 in place of 90.
 
-**Every card should have a scan at 0 degrees and at least one more.** The card's first 0 degree scan is the reference that its other scans are matched to. A card without one is warned about and uses its first scan instead, and a card with a single scan gives each of its glyphs only one view.
+**Every card is scanned at 0 and 90 degrees.** The 0 degree scan is the reference that the 90 degree scan is matched to, and the pair gives each printed glyph two views on different pixel grids, which is what the noise figures compare. A card without one is warned about and uses its first scan instead, and a card with a single scan gives each of its glyphs only one view.
 
 ## Cropping scans first
 
