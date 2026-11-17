@@ -248,8 +248,37 @@ input[type='range']::-moz-range-thumb { width: 1.5rem; height: 1.5rem; border: 0
 section > .mid.scroll, section > .wide.scroll { margin-block: 1.25rem; }
 
 /* sortable table headings are buttons that look like the heading, with an arrow for the sorted column */
-th button.sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; display: inline-flex; gap: 0.3em; align-items: baseline; }
-th.r button.sort { flex-direction: row-reverse; }
-th button.sort::after { content: '↕'; color: var(--muted); font-size: 0.85em; opacity: 0.6; }
-th[aria-sort='ascending'] button.sort::after { content: '↑'; color: var(--red); opacity: 1; }
-th[aria-sort='descending'] button.sort::after { content: '↓'; color: var(--red); opacity: 1; }
+th button.sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+/* the arrow sits on the side the column's numbers align to */
+th button.sort::after, th.r button.sort::before { content: var(--arrow, '↕'); color: var(--muted); font-size: 0.85em; opacity: 0.6; }
+th button.sort::after { margin-left: 0.3em; }
+th.r button.sort::before { margin-right: 0.3em; }
+th.r button.sort::after { content: none; }
+th[aria-sort='ascending'] { --arrow: '↑'; }
+th[aria-sort='descending'] { --arrow: '↓'; }
+th[aria-sort] button.sort::after, th[aria-sort] button.sort::before { color: var(--red); opacity: 1; }
+
+/* the data page's table filters, contents list and stacking panel */
+form.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.4rem; margin: 1rem 0 0.6rem; font-size: 0.9rem; }
+form.filters fieldset { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; border: 0; margin: 0; padding: 0; }
+form.filters label { display: inline-flex; align-items: center; gap: 0.4em; }
+form.filters input[type='search'], form.filters input[type='number'], form.filters select { font: inherit; color: var(--ink); background: var(--paper); border: 1.5px solid var(--rule); border-radius: 0.5em; padding: 0.2em 0.5em; }
+form.filters input[type='radio'], form.filters input[type='checkbox'] { margin: 0; }
+form.filters .count { margin: 0; color: var(--muted); font-size: 0.85rem; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 0.5rem 3rem; margin: 2rem 0 1rem; }
+nav.toc .kicker { margin: 0 0 0.3rem; }
+nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.2rem 1.2rem; }
+.kicker.part { margin-top: 4rem; border-top: 1px solid var(--rule); padding-top: 1.2rem; }
+.sweepmap { margin: 1rem 0; }
+.sweepmap svg { width: 100%; height: auto; display: block; }
+.sweepmap text { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-style: italic; font-size: 12px; fill: var(--muted); }
+.sweepmap .axis { stroke: var(--ink); stroke-width: 1; }
+.sweepmap .grid { stroke: var(--rule); stroke-width: 1; }
+.sweepmap .curves path { fill: none; stroke: var(--ink); stroke-opacity: 0.18; stroke-width: 1; }
+.sweepmap .band { fill: var(--red); fill-opacity: 0.15; }
+.sweepmap .rms { fill: none; stroke: var(--red); stroke-width: 2.4; }
+.sweepmap .noise { fill: none; stroke: var(--blue); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.sweepmap .rec { stroke: var(--red); stroke-width: 1.5; }
+.sweepmap figcaption { font-size: 0.85rem; color: var(--muted); max-width: var(--measure); margin-top: 0.5rem; }
+stack-panel { display: block; }
+.sp-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 0 2rem; align-items: start; }

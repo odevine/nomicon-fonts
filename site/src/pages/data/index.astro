@@ -4,6 +4,7 @@ import { readdirSync } from 'node:fs';
 import { glyphs, glyph, sweepOf, noise, noisePair, cards, calibration, edgeLevels, fileSize, fmt, kerning, meta } from '../../lib/data';
 import { cardName, glyphLabel, countWord } from '../../lib/format';
 import { href } from '../../lib/site';
+import { SM, sweepAxes } from '../../lib/sweepmap';
 
 const n = noise(), cal = calibration(), lv = edgeLevels();
 const hist = n.headline.hist;
@@ -42,7 +43,17 @@ const files = [
 const gl = readdirSync('data/glyphs').length;
 const rows = glyphs();
 const byCount = [...rows].sort((a, z) => z.n - a.n || a.name.localeCompare(z.name));
-const docs = rows.map((r) => ({ r, d: glyph(r.name), sw: sweepOf(r.name) }));
+// the sweep overview: every glyph's curve, its y axis cut at the 99th percentile so a few one-instance outliers don't flatten it
+const sweeps = byCount.map((r) => ({ r, sw: sweepOf(r.name) }));
+const smN = Math.max(...sweeps.flatMap(({ sw }) => sw.rows.map((w) => w.n)));
+const smV = sweeps.flatMap(({ sw }) => sw.rows.map((w) => w.p90)).sort((a, z) => a - z);
+const smY = Math.ceil(smV[Math.floor(smV.length * 0.99)] / 4) * 4;
+const ax = sweepAxes(smN, smY);
+const pick = byCount.find((r) => r.name === 'e') ?? byCount[0];
+const pd = glyph(pick.name), psw = sweepOf(pick.name);
+const pickLabel = glyphLabel(pick.char, pick.style);
+const priorN = rows.filter((r) => r.source === 'prior').length;
+const MIN_PAIR = 5;
 const pairs = Object.entries(kerning()).sort((a, z) => z[1].n - a[1].n);
 const kb = (f: string) => `${Math.round(fileSize(f) / 1024)} KB`;
 const sizes: Record<string, string> = {
@@ -64,23 +75,12 @@ const sizes: Record<string, string> = {
     </ul>
     <p class="proof">These come from one scanner and {Object.keys(cards()).length} cards, each scanned at 0° and 90°. The scans are read with the texture profile, which levels tinted text boxes and averages out a strong halftone screen. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but doesn’t recover finer detail.</p>
 
-    <h2 id="noise">Noise</h2>
-    <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.headline.pair_rms_um)} µm over {n.headline.n_pairs} pairs, with scale and shear tied across a card’s scans. That gives {fmt(n.headline.single_scan_um)} µm single-scan noise and {fmt(n.headline.pair_mean_um)} µm for a pair mean.</p>
-    <p>Fitting each scan’s affine on its own instead gives {fmt(n.alternative.single_scan_um)} µm and {fmt(n.alternative.pair_mean_um)} µm over {n.alternative.n_pairs} pairs.</p>
+    <nav class="toc wide" aria-label="On this page">
+      <div><p class="kicker">Method</p><ul><li><a href="#calibration">Calibration</a></li><li><a href="#noise">Noise</a></li><li><a href="#edge-levels">Edge levels</a></li><li><a href="#limits">Limits</a></li></ul></div>
+      <div><p class="kicker">Data</p><ul><li><a href="#glyphs">Glyphs</a></li><li><a href="#stacking">Stacking</a></li><li><a href="#spacing">Spacing</a></li><li><a href="#files">Files</a></li></ul></div>
+    </nav>
 
-    <figure class="hist-fig">
-      <svg class="hist" viewBox={`0 0 ${H.w} ${H.h}`} role="img" aria-labelledby="hs-t hs-d">
-        <title id="hs-t">How far apart the two copies of each printed glyph are</title>
-        <desc id="hs-d">A histogram of the edge distance between two views of each of {hist.n} printed glyphs. The middle pair differs by {fmt(hist.median_um)} micrometres.</desc>
-        {hist.counts.slice(0, Hn).map((c, i) => c > 0 && <rect class="bar" x={hx(i * hist.bin_um) + 1} y={hy(c)} width={hx(hist.bin_um) - hx(0) - 2} height={hy(0) - hy(c)} />)}
-        <line class="axis" x1={H.l} x2={H.w - H.r} y1={hy(0)} y2={hy(0)} />
-        {hticks.map((u) => <text class="axt" x={hx(u)} y={H.h - H.b + 16} text-anchor="middle">{u}</text>)}
-        <text class="axt" x={(H.l + H.w - H.r) / 2} y={H.h - 6} text-anchor="middle">edge distance between the two copies, µm</text>
-        <line class="med" x1={hx(hist.median_um)} x2={hx(hist.median_um)} y1={H.t} y2={hy(0)} />
-      </svg>
-      <figcaption>{hist.n} printed glyphs, each scanned twice. Dashed line: the middle pair, {fmt(hist.median_um)} µm. The RMS over all pairs is {fmt(hist.rms_um)} µm.</figcaption>
-    </figure>
-
+    <p class="kicker part" id="method">Method</p>
     <h2 id="calibration">Calibration</h2>
     <p>Ruler ticks on the calibration target give {fmt(cal.summary.px_per_mm, 2)} px/mm, with x and y scales equal to {fmt(cal.summary.scan_anisotropy * 100, 2)} %. Edge widths measured on slanted printed edges range {fmt(Math.min(...w), 0)} to {fmt(Math.max(...w), 0)} µm over {w.length} edges, median {fmt(cal.summary.edge_w1090_um_median, 0)} µm. The scanner pixel is 21 µm, so the blur is several pixels wide.</p>
 
@@ -99,8 +99,100 @@ const sizes: Record<string, string> = {
       </table>
     </div>
 
+    <h2 id="noise">Noise</h2>
+    <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.headline.pair_rms_um)} µm over {n.headline.n_pairs} pairs, with scale and shear tied across a card’s scans. That gives {fmt(n.headline.single_scan_um)} µm single-scan noise and {fmt(n.headline.pair_mean_um)} µm for a pair mean.</p>
+    <p>Fitting each scan’s affine on its own instead gives {fmt(n.alternative.single_scan_um)} µm and {fmt(n.alternative.pair_mean_um)} µm over {n.alternative.n_pairs} pairs.</p>
+
+    <figure class="hist-fig">
+      <svg class="hist" viewBox={`0 0 ${H.w} ${H.h}`} role="img" aria-labelledby="hs-t hs-d">
+        <title id="hs-t">How far apart the two copies of each printed glyph are</title>
+        <desc id="hs-d">A histogram of the edge distance between two views of each of {hist.n} printed glyphs. The middle pair differs by {fmt(hist.median_um)} micrometres.</desc>
+        {hist.counts.slice(0, Hn).map((c, i) => c > 0 && <rect class="bar" x={hx(i * hist.bin_um) + 1} y={hy(c)} width={hx(hist.bin_um) - hx(0) - 2} height={hy(0) - hy(c)} />)}
+        <line class="axis" x1={H.l} x2={H.w - H.r} y1={hy(0)} y2={hy(0)} />
+        {hticks.map((u) => <text class="axt" x={hx(u)} y={H.h - H.b + 16} text-anchor="middle">{u}</text>)}
+        <text class="axt" x={(H.l + H.w - H.r) / 2} y={H.h - 6} text-anchor="middle">edge distance between the two copies, µm</text>
+        <line class="med" x1={hx(hist.median_um)} x2={hx(hist.median_um)} y1={H.t} y2={hy(0)} />
+      </svg>
+      <figcaption>{hist.n} printed glyphs, each scanned twice. Dashed line: the middle pair, {fmt(hist.median_um)} µm. The RMS over all pairs is {fmt(hist.rms_um)} µm.</figcaption>
+    </figure>
+
     <h2 id="edge-levels">Edge levels</h2>
     <p>To reproduce the same pooled ink area, each of the {lv.scans} scans needed its own coverage level, from {fmt(lv.min, 2)} to {fmt(lv.max, 2)}.</p>
+
+    <h2 id="limits">Limits</h2>
+    <p>Everything here comes from one scanner and {countWord(Object.keys(cards()).length)} cards, with an optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement, and the numbers comparing the stack against the design depend on one fit shared by every letter of a face. A glyph marked (prior) has fewer than {meta().min_instances} instances and is blended with the measuring stick, so its figures lean toward the design.</p>
+
+    <p class="kicker part" id="data">Data</p>
+    <h2 id="glyphs">Glyphs</h2>
+    <form class="filters wide" data-for="glyph-table" hidden>
+      <label>Find <input type="search" name="q" size="6" autocomplete="off" /></label>
+      <fieldset><legend class="vh">Face</legend>
+        <label><input type="radio" name="face" value="" checked /> Both faces</label>
+        <label><input type="radio" name="face" value="regular" /> Regular</label>
+        <label><input type="radio" name="face" value="italic" /> Italic</label>
+      </fieldset>
+      <label><input type="checkbox" name="noprior" checked /> Hide the {priorN} glyphs blended with the prior</label>
+      <p class="count" aria-live="polite"></p>
+    </form>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Glyph statistics table">
+      <table data-sortable id="glyph-table">
+        <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick. Sorted by instances. Select a column heading to sort by another, or a recommended N for that glyph’s stacking numbers.</caption>
+        <thead><tr><th data-type="text">Glyph</th><th class="r" aria-sort="descending">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
+        <tbody>{byCount.map((r) => <tr data-char={r.char} data-face={r.style} data-prior={r.source === 'prior' ? '' : undefined}><th scope="row" data-v={glyphLabel(r.char, r.style)}><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.source === 'prior' ? ' (prior)' : r.low_confidence ? ' (low confidence)' : ''}</th><td class="r" data-v={r.n}>{r.n}</td><td class="r" data-v={r.cards}>{r.cards}</td><td class="r" data-v={r.nodes}>{r.nodes}</td><td class="r" data-v={r.edge_rms_um ?? ''}>{fmt(r.edge_rms_um, 2)}</td><td class="r" data-v={r.iou ?? ''}>{fmt(r.iou, 3)}</td><td class="r" data-v={r.recommended_n ?? ''}><a href={`#glyph-${r.name}`} aria-label={`${r.recommended_n}, stacking numbers for ${glyphLabel(r.char, r.style)}`}>{r.recommended_n}</a></td></tr>)}</tbody>
+      </table>
+    </div>
+
+    <h2 id="stacking">Stacking, glyph by glyph</h2>
+    <p>Each grey line is one glyph’s edge error against the measuring stick as more of its instances are stacked, from a sweep over random subsets. Most fall toward a floor set by the scanner’s blur, and the glyphs with only a handful of instances stop early on the left. The picked glyph is drawn in red with its p10 to p90 band, and its tables follow.</p>
+    <stack-panel class="wide" data-base={href('/data/')} data-nmax={smN} data-ymax={smY}>
+      <form class="filters" hidden>
+        <label for="sp-glyph">Glyph</label>
+        <select id="sp-glyph">{byCount.map((r) => <option value={r.name} selected={r.name === pick.name}>{glyphLabel(r.char, r.style)}, {r.n} {r.n === 1 ? 'instance' : 'instances'}</option>)}</select>
+      </form>
+      <figure class="sweepmap">
+        <svg viewBox={`0 0 ${SM.W} ${SM.H}`} role="img" aria-labelledby="sm-t sm-d">
+          <title id="sm-t">Edge error against the number of stacked instances, for every glyph</title>
+          <desc id="sm-d">{sweeps.length} curves of edge RMS in micrometres against N on a log axis. The picked glyph, {pickLabel}, is drawn in red.</desc>
+          <defs><clipPath id="sm-clip"><rect x={SM.l} y={SM.t} width={SM.W - SM.l - SM.r} height={SM.H - SM.t - SM.b} /></clipPath></defs>
+          {ax.yticks.map((v) => <line class="grid" x1={SM.l} x2={SM.W - SM.r} y1={ax.Y(v)} y2={ax.Y(v)} />)}
+          <g clip-path="url(#sm-clip)">
+            <g class="curves">{sweeps.map(({ r, sw }) => <path data-name={r.name} d={ax.line(sw.rows, 'rms_vs_ref_um')} />)}</g>
+            <g class="sel"><path class="band" d={ax.band(psw.rows)} /><path class="noise" d={ax.line(psw.rows, 'noise_model_um')} /><path class="rms" d={ax.line(psw.rows, 'rms_vs_ref_um')} /><line class="rec" x1={ax.X(psw.recommended_n)} x2={ax.X(psw.recommended_n)} y1={SM.t} y2={SM.H - SM.b} /></g>
+          </g>
+          <line class="axis" x1={SM.l} x2={SM.W - SM.r} y1={SM.H - SM.b} y2={SM.H - SM.b} />
+          {ax.xticks.map((t) => <text x={ax.X(t)} y={SM.H - SM.b + 16} text-anchor="middle">{t}</text>)}
+          {ax.yticks.map((v) => <text x={SM.l - 6} y={ax.Y(v) + 4} text-anchor="end">{v}</text>)}
+        </svg>
+        <figcaption>Edge RMS in µm, against N instances stacked on a log scale. Red: <span class="sm-name">{pickLabel}</span>. Dashed blue: its modelled noise. Red rule: its recommended N. The axis stops at {smY} µm, which cuts off a few curves that start above it.</figcaption>
+      </figure>
+      <h3 class="sp-head"><span class="sm-name">{pickLabel}</span>, <span class="sp-n">{pick.n}</span> instances</h3>
+      <div class="sp-tables">
+        <div class="scroll" tabindex="0" role="region" aria-label="Traces table">
+          <table><caption>Trace from the first N instances of one fixed random order</caption>
+            <thead><tr><th class="r">N</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th></tr></thead>
+            <tbody class="sp-trace">{pd.trace_by_n.map((t) => <tr><td class="r">{t.n}</td><td class="r">{t.cards}</td><td class="r">{t.nodes}</td><td class="r">{t.edge_rms_um === null ? 'n/a' : fmt(t.edge_rms_um, 2)}</td></tr>)}</tbody></table>
+        </div>
+        <div class="scroll" tabindex="0" role="region" aria-label="N-sweep table">
+          <table><caption>N-sweep over random subsets, µm</caption>
+            <thead><tr><th class="r">N</th><th class="r">Edge RMS</th><th class="r">p10</th><th class="r">p90</th><th class="r">Noise model</th></tr></thead>
+            <tbody class="sp-sweep">{psw.rows.map((t) => <tr><td class="r">{t.n}</td><td class="r">{fmt(t.rms_vs_ref_um, 2)}</td><td class="r">{fmt(t.p10, 2)}</td><td class="r">{fmt(t.p90, 2)}</td><td class="r">{fmt(t.noise_model_um, 2)}</td></tr>)}</tbody></table>
+        </div>
+      </div>
+    </stack-panel>
+
+    <h2 id="spacing">Observed spacing</h2>
+    <p>These are the gaps between adjacent letters as measured on the cards, in font units (1 fu is about 3.1 µm), against the designed gap with and without its kern value. A pair seen only a few times says little, so pairs with fewer than {MIN_PAIR} samples start hidden.</p>
+    <form class="filters wide" data-for="spacing-table" hidden>
+      <label>Fewest samples <input type="number" name="min" min="1" value={MIN_PAIR} size="3" /></label>
+      <p class="count" aria-live="polite"></p>
+    </form>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Observed spacing table">
+      <table data-sortable id="spacing-table">
+        <caption>{pairs.length} pairs, most measured first. Select a column heading to sort by another.</caption>
+        <thead><tr><th data-type="text">Pair</th><th class="r" aria-sort="descending">Samples</th><th class="r">Designed gap</th><th class="r">Kern</th><th class="r">Mean deviation before kern</th><th class="r">After kern</th><th class="r">sd</th></tr></thead>
+        <tbody>{pairs.map(([k, v]) => <tr data-n={v.n}><td class="mono" data-v={k}>{k}</td><td class="r" data-v={v.n}>{v.n}</td><td class="r" data-v={v.designed_gap ?? ''}>{fmt(v.designed_gap, 0)}</td><td class="r" data-v={v.kern ?? ''}>{v.kern}</td><td class="r" data-v={v.mean_dev_nokern ?? ''}>{fmt(v.mean_dev_nokern)}</td><td class="r" data-v={v.mean_dev_kern ?? ''}>{fmt(v.mean_dev_kern)}</td><td class="r" data-v={v.sd ?? ''}>{fmt(v.sd)}</td></tr>)}</tbody>
+      </table>
+    </div>
 
     <h2 id="files">Files</h2>
     <div class="scroll wide" tabindex="0" role="region" aria-label="Data files table">
@@ -110,48 +202,9 @@ const sizes: Record<string, string> = {
         <tbody>{files.map(([f, d]) => <tr><td class="mono">{f}</td><td>{d}</td><td class="r">{sizes[f] ?? ''}</td></tr>)}</tbody>
       </table>
     </div>
-    <h2 id="glyphs">Glyphs</h2>
-    <div class="scroll wide" tabindex="0" role="region" aria-label="Glyph statistics table">
-      <table data-sortable>
-        <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick. Sorted by instances. Select a column heading to sort by another.</caption>
-        <thead><tr><th data-type="text">Glyph</th><th class="r" aria-sort="descending">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
-        <tbody>{byCount.map((r) => <tr><th scope="row" data-v={glyphLabel(r.char, r.style)}><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.source === 'prior' ? ' (prior)' : r.low_confidence ? ' (low confidence)' : ''}</th><td class="r" data-v={r.n}>{r.n}</td><td class="r" data-v={r.cards}>{r.cards}</td><td class="r" data-v={r.nodes}>{r.nodes}</td><td class="r" data-v={r.edge_rms_um ?? ''}>{fmt(r.edge_rms_um, 2)}</td><td class="r" data-v={r.iou ?? ''}>{fmt(r.iou, 3)}</td><td class="r" data-v={r.recommended_n ?? ''}>{r.recommended_n}</td></tr>)}</tbody>
-      </table>
-    </div>
-
-    <h2 id="stacking">Stacking, glyph by glyph</h2>
-    <p>For each glyph, here’s the trace from the first N instances of one fixed random order, and the N-sweep over random subsets.</p>
-    {docs.map(({ r, d, sw }) => (
-      <details id={`glyph-${r.name}`}>
-        <summary>{glyphLabel(r.char, r.style)}, {r.n} instances</summary>
-        <div class="scroll wide" tabindex="0" role="region" aria-label={`Traces table for ${glyphLabel(r.char, r.style)}`}>
-          <table><caption>Trace from the first N instances of {glyphLabel(r.char, r.style)}</caption>
-            <thead><tr><th class="r">N</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th></tr></thead>
-            <tbody>{d.trace_by_n.map((t) => <tr><td class="r">{t.n}</td><td class="r">{t.cards}</td><td class="r">{t.nodes}</td><td class="r">{t.edge_rms_um === null ? 'n/a' : fmt(t.edge_rms_um, 2)}</td></tr>)}</tbody></table>
-        </div>
-        <div class="scroll wide" tabindex="0" role="region" aria-label={`N-sweep table for ${glyphLabel(r.char, r.style)}`}>
-          <table><caption>N-sweep for {glyphLabel(r.char, r.style)} over random subsets, µm</caption>
-            <thead><tr><th class="r">N</th><th class="r">Edge RMS</th><th class="r">p10</th><th class="r">p90</th><th class="r">Noise model</th></tr></thead>
-            <tbody>{sw.rows.map((t) => <tr><td class="r">{t.n}</td><td class="r">{fmt(t.rms_vs_ref_um, 2)}</td><td class="r">{fmt(t.p10, 2)}</td><td class="r">{fmt(t.p90, 2)}</td><td class="r">{fmt(t.noise_model_um, 2)}</td></tr>)}</tbody></table>
-        </div>
-      </details>
-    ))}
-
-    <h2 id="spacing">Observed spacing</h2>
-    <p>These are the gaps between adjacent letters as measured on the cards, in font units (1 fu is about 3.1 µm), against the designed gap with and without its kern value.</p>
-    <div class="scroll wide" tabindex="0" role="region" aria-label="Observed spacing table">
-      <table>
-        <caption>{pairs.length} pairs, most measured first</caption>
-        <thead><tr><th>Pair</th><th class="r">Samples</th><th class="r">Designed gap</th><th class="r">Kern</th><th class="r">Mean deviation before kern</th><th class="r">After kern</th><th class="r">sd</th></tr></thead>
-        <tbody>{pairs.map(([k, v]) => <tr><td class="mono">{k}</td><td class="r">{v.n}</td><td class="r">{fmt(v.designed_gap, 0)}</td><td class="r">{v.kern}</td><td class="r">{fmt(v.mean_dev_nokern)}</td><td class="r">{fmt(v.mean_dev_kern)}</td><td class="r">{fmt(v.sd)}</td></tr>)}</tbody>
-      </table>
-    </div>
-
-    <h2 id="limits">Limits</h2>
-    <p>Everything here comes from one scanner and {countWord(Object.keys(cards()).length)} cards, with an optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement, and the numbers comparing the stack against the design depend on one fit shared by every letter of a face. A glyph marked (prior) has fewer than {meta().min_instances} instances and is blended with the measuring stick, so its figures lean toward the design.</p>
   </article>
 </Page>
-<script>import '../../scripts/sorttable';</script>
+<script>import '../../scripts/sorttable'; import '../../scripts/datapage';</script>
 <style is:global>
   .hist-fig { margin: 1rem 0; }
   .hist { width: 100%; max-width: 560px; height: auto; display: block; }

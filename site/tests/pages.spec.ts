@@ -89,9 +89,48 @@ test('every exported glyph has a page and per-glyph files stay in the repo data'
 test('the data page carries the glyph, stacking and spacing tables', async ({ page }) => {
   await page.goto('/data/');
   await expect(page.locator('div[aria-label="Glyph statistics table"] tbody tr')).toHaveCount(glyphs.length);
-  await expect(page.locator('details[id^="glyph-"]')).toHaveCount(glyphs.length);
+  await expect(page.locator('#sp-glyph option')).toHaveCount(glyphs.length);
+  await expect(page.locator('stack-panel .curves path')).toHaveCount(glyphs.length);
   const pairs = Object.keys(read('kerning.json')).length;
   await expect(page.locator('div[aria-label="Observed spacing table"] tbody tr')).toHaveCount(pairs);
+});
+
+test('the glyph filters hide prior glyphs by default and find a glyph by its character', async ({ page }) => {
+  await page.goto('/data/');
+  const form = page.locator('form[data-for="glyph-table"]');
+  const shown = page.locator('#glyph-table tbody tr:not([hidden])');
+  const priors = glyphs.filter((g: { source: string }) => g.source === 'prior').length;
+  await expect(shown).toHaveCount(glyphs.length - priors);
+  await form.getByLabel(/Hide the/).uncheck();
+  await expect(shown).toHaveCount(glyphs.length);
+  await form.getByLabel('Italic').check();
+  await expect(shown).toHaveCount(glyphs.filter((g: { style: string }) => g.style === 'italic').length);
+  await form.getByLabel('Both faces').check();
+  await form.getByLabel('Find').fill('e');
+  await expect(shown.first().locator('th')).toHaveAttribute('data-v', /^e/);
+  await expect(form.locator('.count')).toContainText(`of ${glyphs.length} glyphs`);
+});
+
+test('the spacing table starts with rare pairs hidden', async ({ page }) => {
+  await page.goto('/data/');
+  const k = read('kerning.json') as Record<string, { n: number }>;
+  const shown = page.locator('#spacing-table tbody tr:not([hidden])');
+  await expect(shown).toHaveCount(Object.values(k).filter((v) => v.n >= 5).length);
+  await page.locator('form[data-for="spacing-table"]').getByLabel('Fewest samples').fill('1');
+  await expect(shown).toHaveCount(Object.keys(k).length);
+});
+
+test('the stacking panel shows the glyph named in the address and follows the picker', async ({ page }) => {
+  const g = glyphs.find((x: { name: string; n: number }) => x.name !== 'e' && x.n > 1);
+  const doc = JSON.parse(readFileSync(`data/glyphs/${g.name}.json`, 'utf8'));
+  await page.goto(`/data/#glyph-${g.name}`);
+  const panel = page.locator('stack-panel');
+  await expect(panel).toHaveAttribute('data-shown', g.name);
+  await expect(panel.locator('.sp-trace tr')).toHaveCount(doc.trace_by_n.length);
+  await expect(panel.locator('.sp-n')).toHaveText(String(g.n));
+  await panel.locator('#sp-glyph').selectOption('e');
+  await expect(panel).toHaveAttribute('data-shown', 'e');
+  await expect(page).toHaveURL(/#glyph-e$/);
 });
 
 test('notes are plain text with no proofreader label', async ({ page }) => {
