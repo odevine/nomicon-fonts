@@ -176,6 +176,11 @@ def render(g, p, shape, look):
     return ndtr((look["d"] - blur(placed_distance(g, p, shape, LOOK_BAND), look["r"])) / look["w"]).astype(np.float32)
 
 
+def prior_weight(n, min_n, weight, falloff):
+    """How many instances the drawn outline counts as for a stack of n, weight at none falling to 0 at min_n as 1 - (n / min_n) ** falloff"""
+    return weight * max(0.0, 1.0 - (n / min_n) ** falloff)
+
+
 def with_prior(g, p, mean, n, look, weight):
     """A stack of n instances blended with the measuring stick's outline rendered as the print would show it, which counts as weight instances"""
     return ((n * mean + weight * render(g, p, mean.shape, look)) / (n + weight)).astype(np.float32)
@@ -250,8 +255,9 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
     fonts is {face: font}, a bare font counts as the primary face. Glyph keys come from `styles`, and a glyph of
     another face is placed with the shared transform scaled to that font's units per em. Each face's print look is
     the median of its traced glyphs'. With the profile's fit prior_weight set, a glyph with fewer than min_n
-    instances is traced from its stack blended with its outline drawn with that look, and records that it leans on
-    the prior and how far the blend moved from its own stack. Each of `chars` with no stack is built as the face's
+    instances is traced from its stack blended with its outline drawn with that look, the outline counting as fewer
+    instances the more the stack has (`prior_weight`), and records that it leans on the prior, the weight it took and
+    how far the blend moved from its own stack. Each of `chars` with no stack is built as the face's
     measuring stick makes it, a composite from its parts' entries at the font's component offsets and any other
     from its outline drawn with the look, and records how it was built
     """
@@ -265,6 +271,7 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
     shared = shared_transform(reg, stacks[seed]["mean"])
     per_style = {st: shared if st == first else face_transform(shared, reg, f) for st, f in fonts.items()}
     weight = target.get()["fit"].get("prior_weight")
+    falloff = target.get()["fit"].get("prior_falloff", 3)
     out, placed = {}, {}
     for key, s in stacks.items():
         st, ch = styles.style_of(key), styles.char_of(key)
@@ -305,8 +312,9 @@ def fit_all(fonts, stacks, min_n=12, chars=(), workers=None):
             s = stacks[key]
             mean, extra = s["mean"], {}
             if s["n"] < min_n:
-                mean = with_prior(g, p, s["mean"], s["n"], face[styles.style_of(key)], weight)
-                extra = dict(prior=True, prior_weight=weight, moved_um=edge_rms_um(mean, s["mean"]))
+                w = prior_weight(s["n"], min_n, weight, falloff)
+                mean = with_prior(g, p, s["mean"], s["n"], face[styles.style_of(key)], w)
+                extra = dict(prior=True, prior_weight=round(w, 2), moved_um=edge_rms_um(mean, s["mean"]))
             contour = contours_at(mean, 0.5)
             rms, iou = edge_stats(g, p, mean, contour)
             path, nodes, nc = trace(mean, p)

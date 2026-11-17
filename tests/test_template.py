@@ -105,6 +105,18 @@ def test_the_prior_renders_the_outline_on_its_spread_contour_and_blends_as_insta
     assert np.allclose(blend, prior / 2)
 
 
+def test_the_drawn_outline_counts_for_less_the_more_instances_a_stack_has():
+    from glyphstack import fontfit
+
+    w = [fontfit.prior_weight(n, 12, 6, 3) for n in range(13)]
+    assert w[0] == 6 and w[12] == 0
+    assert all(a > b for a, b in zip(w, w[1:]))
+    # the share of the blend the outline takes falls too, so a glyph leans on it less as copies arrive
+    share = [x / (n + x) for n, x in enumerate(w) if n]
+    assert all(a > b for a, b in zip(share, share[1:]))
+    assert fontfit.prior_weight(20, 12, 6, 3) == 0
+
+
 def test_the_print_look_finds_the_spread_edge_and_rounding_a_stack_was_drawn_with():
     from glyphstack import fontfit
 

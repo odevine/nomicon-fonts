@@ -132,8 +132,10 @@ seed_glyph = "e"
 seed = [0.592, 1.0, 0.0, 0.0, 0.0, 1.5]
 scale_bounds = [0.4, 0.8]
 # a glyph with fewer instances than the session traces from is traced from its stack blended with its outline,
-# drawn with the face's print look, which counts as this many instances
-prior_weight = 4
+# drawn with the face's print look, which counts as prior_weight instances for a stack of none, falling to none at
+# the threshold as 1 - (n / threshold) ** prior_falloff, the curve that came closest on held out copies
+prior_weight = 6
+prior_falloff = 3
 
 [site]
 # the glyph and card the Scan to Glyph sequence is drawn from
