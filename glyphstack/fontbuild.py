@@ -1,4 +1,4 @@
-"""Variable fonts of each face of a session with a Bleed axis, built from its traces and the synthetic font baseline
+"""Variable fonts of each face of a session with Bleed and optical size axes, built from its traces and the synthetic font baseline
 
 Bleed is the strength of the face's print look in percent, the ink spread and rounding measured on its traced
 stacks, which fill in sharp inner corners and round off outer ones. At 100 every glyph is as the session traced or
@@ -7,6 +7,9 @@ which glyphstack.baseline makes, is each face drawn at a Bleed of 25 and is the 
 no stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
 each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
 outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
+Optical size, opsz, scales the print look to the size the type is set at in points. At the default, the size the
+traced stacks print at on average, the look is the one Bleed sets. The part of the spread and the rounding that stays a
+fixed width on paper takes a larger share of a smaller em, so smaller sizes print a stronger look, mostly rounder, and larger ones a lighter one.
 The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed
 
     python -m glyphstack.fontbuild build/session --baseline build/synthetic_baseline/NomiconRulesBleed25-Regular.ttf \
@@ -38,9 +41,17 @@ from . import fontfit, log, styles, target
 from .contours import UM_PER_PX, contours_at, sym_dev
 
 # past a quarter more than measured the look closes more slits than a fixed set of points can follow
-AXIS = dict(tag="BLED", name="Bleed", minimum=25, default=100, maximum=125)
-# strengths between these interpolate to within about 1 µm of the look drawn at them
-MASTERS = (25, 50, 100, 125)
+BLEED = dict(tag="BLED", name="Bleed", minimum=25, default=100, maximum=125)
+# in points, from the smallest card text scanned to display sizes, where the look is close to its large size limit.
+# Rules text prints at 8.9 pt at a print scale of 1, and the stacks average to 7.8 pt, which 8 rounds
+OPSZ = dict(tag="opsz", name="Optical size", minimum=6, default=8, maximum=72)
+AXES = (BLEED, OPSZ)
+# Bleed strengths between these interpolate to within about 1 µm of the look drawn at them, and sizes between these
+# interpolate in 1 / size, which the look's strength is linear in
+MASTERS = {"BLED": (25, 50, 100, 125), "opsz": (6, 8, 72)}
+# the share of the spread and of the rounding that holds a fixed width on paper as the print scale changes, the
+# rest scaling with the type, fitted over the 40 cards of full_v1 printed at 0.66 to 1.0
+PHYSICAL = dict(d=0.14, r=0.51)
 # the output's units per em as a multiple of the measuring stick's, since one unit of a 1000 unit em is about 3 µm
 # at the printed size, coarser than the 1 µm the masters are fitted to
 SCALE = 4
@@ -61,6 +72,32 @@ MIN_SEGMENT = 2.0
 MAX_MISFIT = 8.0
 # a segment between two corners shorter than this in grid px is a slit's tip, folded into one corner
 TIP_PX = 3.0
+
+
+def size_gain(opsz):
+    """How much stronger the spread and the rounding print at a size in points than at the default size"""
+    return {k: 1 - f + f * OPSZ["default"] / opsz for k, f in PHYSICAL.items()}
+
+
+def strength(bleed, opsz, t0=0.0):
+    """The spread and rounding strengths of the print look at a Bleed in percent and a size in points, at least the t0 an outline already carries"""
+    g = size_gain(opsz)
+    return max(t0, bleed / 100 * g["d"]), max(t0, bleed / 100 * g["r"])
+
+
+def opsz_map(steps=17):
+    """(user, design) points of the optical size axis, which make each stretch between two masters linear in 1 / size"""
+    out = {}
+    for a, b in zip(MASTERS["opsz"], MASTERS["opsz"][1:]):
+        for o in np.geomspace(a, b, steps):
+            out[round(float(o), 4)] = a + (b - a) * (1 / a - 1 / o) / (1 / a - 1 / b)
+    return sorted(out.items())
+
+
+def locations(axes):
+    """Every master location of the given axes, as {axis tag: user value}, optical size outermost"""
+    sizes = MASTERS["opsz"] if OPSZ in axes else (None,)
+    return [{"BLED": b} | ({"opsz": o} if o else {}) for o in sizes for b in MASTERS["BLED"]]
 
 
 class SegmentPen(BasePen):
@@ -265,12 +302,12 @@ def refine(c, split_fu):
 
 
 def corner_reach(pl, look, t, t0=0.0):
-    """How far along a segment from its corner the print look at strength t does more than spread the ink, in font units, times 1.3
+    """How far along a segment from its corner the print look at strength t, one number or a spread and rounding pair, does more than spread the ink, in font units, times 1.3
 
     Splitting there leaves the whole fill or rounding of the corner to the pieces beside it, however acute the corner
     """
     F = pl.field(t, look, t0)
-    plain = -(t - t0) * look["d"]
+    plain = -(pair(t)[0] - t0) * look["d"]
     least = look["r"] / pl.M[0, 0]
 
     def reach(P, end):
@@ -312,9 +349,11 @@ class Placed:
     def field(self, t, look, t0=0.0):
         """The print look's edge at strength t is where this is 0, negative in the ink, for an outline that already carries strength t0
 
-        Blurs compose in quadrature, so the outline drawn at t0 takes the rest of the blur and of the ink spread
+        t is one strength or a pair, the spread's and the rounding's. Blurs compose in quadrature, so the outline
+        drawn at t0 takes the rest of the blur and of the ink spread
         """
-        return fontfit.blur(self.sd, np.sqrt(t ** 2 - t0 ** 2) * look["r"]) - (t - t0) * look["d"]
+        td, tr = pair(t)
+        return fontfit.blur(self.sd, np.sqrt(max(tr ** 2 - t0 ** 2, 0.0)) * look["r"]) - (td - t0) * look["d"]
 
     def outward(self, x, n, base=None):
         """Normals flipped to point out of the ink of base, the outline's own distance field unless given"""
@@ -353,6 +392,11 @@ class Placed:
                 ok[i] = not (far.any() and np.sign(way[far]).min() != np.sign(way[far]).max())
         moved = x + out[:, None] * n
         return (moved, ok) if flags else moved
+
+
+def pair(t):
+    """A strength as its spread and rounding parts"""
+    return (t, t) if np.isscalar(t) else tuple(t)
 
 
 def normals(P, u):
@@ -493,23 +537,27 @@ def settle(J2, ok, g, edge):
     return J2
 
 
-def standins(contours, joints, pl, look, ts, step=0.25, t0=0.0):
+def standins(contours, joints, pl, look, ts, at=None, step=0.25, t0=0.0):
     """Refined measuring stick outlines with their points moved onto the print look's edge at each strength of ts, in font units, and the strength they stop at
 
-
-    The strength rises in steps from t0, the strength the outline already carries, each moving the last step's points a little, so a point is never sent across
-    another part of the outline. Each joint moves along its normal, or a corner along its bisector, to the edge, and
+    at maps a strength to the spread and rounding pair drawn at it, the same strength for both unless given. The
+    strength rises in steps from t0, the strength the outline already carries, each moving the last step's points a
+    little, so a point is never sent across another part of the outline. Each joint moves along its normal, or a corner along its bisector, to the edge, and
     each segment is then fitted to the stretch of edge between its two joints, which keeps the points in order where a
     filled corner swallows them. A step that lands more than MAX_MISFIT from the edge is not taken, and the outline
     keeps the last strength it followed, which is returned, None when it followed every step
     """
-    out, cur, base, held = {round(t0, 6): contours}, contours, pl.sd, None
-    for t in np.arange(t0 + step, max(ts) + step / 2, step):
-        F = pl.field(t, look, t0)
+    at = at or (lambda t: (t, t))
+    out, cur, base, held = {}, contours, pl.sd, None
+    for t in np.arange(t0, max(ts) + step / 2, step):
+        if np.allclose(at(t), t0):
+            out[round(float(t), 6)] = cur
+            continue
+        F = pl.field(at(t), look, t0)
         if held is None:
             nxt = advance(cur, joints, pl, F, base)
             if (misfit_um(nxt, pl, F) or 0) > MAX_MISFIT:
-                held = t - step
+                held = max(t - step, t0)
             else:
                 cur = nxt
         out[round(float(t), 6)] = cur
@@ -632,11 +680,29 @@ def base_bleed(font):
     return (float(m.group(1)) / 100, SCALE) if m else (0.0, 1)
 
 
-def face_glyphs(font, traces, face, chars):
+def no_lighter(cols, reach, ts, t0=0.0):
+    """Each size's masters, a size below the default taking the default's master at a Bleed where that one followed a stronger look
+
+    reach is the strength each size's walk followed up to. A glyph that stops bleeding sooner at a small size would
+    otherwise print lighter there than at the default
+    """
+    d = OPSZ["default"]
+    if d not in cols:
+        return cols
+    out = {o: list(c) for o, c in cols.items()}
+    for o in (o for o in cols if o < d):
+        for i, t in enumerate(ts):
+            if max(strength(100 * min(t, reach[o]), o, t0)) < max(strength(100 * min(t, reach[d]), d, t0)):
+                out[o][i] = cols[d][i]
+    return out
+
+
+def face_glyphs(font, traces, face, chars, axes=AXES):
     """{glyph name: [glyph of each master]}, the cmap and the advances of one face, with a summary of how each glyph was made
 
-    The source is the measuring stick or a static font this module saved at a Bleed of its own, whose outlines already
-    carry that much of the print look, so each glyph's masters start from it and take only the rest
+    The masters are those of locations(axes) in order. The source is the measuring stick or a static font this module
+    saved at a Bleed of its own, whose outlines already carry that much of the print look, so each glyph's masters
+    start from it and take only the rest. Each optical size is a walk of its own up the Bleed strengths
     """
     t0, k = base_bleed(font)
     looks = [e["look"] for k, e in traces.items() if styles.style_of(k) == face and e.get("built") == "outline"]
@@ -644,9 +710,11 @@ def face_glyphs(font, traces, face, chars):
         raise SystemExit(f"the {face} face has no glyph built with its print look in traces.json")
     look = looks[0]
     shared = next(e["p"] for k, e in traces.items() if styles.style_of(k) == face and "p" in e)
-    ts = [m / 100 for m in MASTERS]
+    locs = locations(axes)
+    ts = [m / 100 for m in MASTERS["BLED"]]
+    sizes = list(dict.fromkeys(loc.get("opsz", OPSZ["default"]) for loc in locs))
     if t0 > min(ts):
-        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS[0]}")
+        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS['BLED'][0]}")
     want, cmap = {}, {}
     taken = {char_name(ch) for ch in chars}
 
@@ -669,13 +737,13 @@ def face_glyphs(font, traces, face, chars):
         ch, name = want[gname]
         e = traces.get(styles.key(face, ch)) if ch else None
         if e is None and ch and ord(ch) in font.getBestCmap() and not font["glyf"][font.getBestCmap()[ord(ch)]].numberOfContours:
-            glyphs[gname] = [TTGlyphPen(None).glyph()] * len(ts)
+            glyphs[gname] = [TTGlyphPen(None).glyph()] * len(locs)
             adv[gname], made[gname] = font["hmtx"][font.getBestCmap()[ord(ch)]][0] / k, "empty"
             continue
         if e and e.get("parts"):
             parts = [(need(p["char"], p["glyph"]), p["offset"]) for p in e["parts"]]
             todo += [n for n, _ in parts]
-            glyphs[gname] = [composite(parts)] * len(ts)
+            glyphs[gname] = [composite(parts)] * len(locs)
             adv[gname], made[gname] = e["adv"], e["built"]
             continue
         contours = design(font, ch or "", None if ch else name, k, SplinePen if t0 else SegmentPen)
@@ -689,14 +757,20 @@ def face_glyphs(font, traces, face, chars):
         else:
             ref = [refine(c, corner_reach(pl, look, ts[-1])) for c in contours]
             rc, joints = [r[0] for r in ref], [j for r in ref for j in r[1]]
-        masters, held = standins(rc, joints, pl, look, ts, t0=t0)
+        cols, reach = {}, {}
+        for o in sizes:
+            cols[o], held = standins(rc, joints, pl, look, ts, lambda t, o=o: strength(100 * t, o, t0), t0=t0)
+            reach[o] = ts[-1] if held is None else held
+            if held is not None:
+                log.log.warning("%s %s stops bleeding at %d at %g pt, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100), o)
+        cols = no_lighter(cols, reach, ts, t0)
+        masters = [cols[loc.get("opsz", OPSZ["default"])][ts.index(loc["BLED"] / 100)] for loc in locs]
         made[gname] = "outline"
         if e and not e.get("built"):
             trace = parse_trace(e["trace"])
-            masters = [displaced(trace, masters[ts.index(1.0)], m, pl) for m in masters]
+            at1 = cols[OPSZ["default"] if OPSZ["default"] in cols else sizes[0]][ts.index(1.0)]
+            masters = [displaced(trace, at1, m, pl) for m in masters]
             made[gname] = "prior" if e.get("prior") else "traced"
-        if held is not None:
-                log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
         glyphs[gname] = quadratic(masters)
         adv[gname] = e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k
     return glyphs, cmap, adv, made
@@ -770,32 +844,37 @@ def add_kerning(font, source, factor):
     return len(pairs)
 
 
-def build_face(font, traces, face, family, style, chars, out):
-    """Writes one face's variable font and returns its path and how each glyph was made"""
-    glyphs, cmap, adv, made = face_glyphs(font, traces, face, chars)
+def build_face(font, traces, face, family, style, chars, out, axes=AXES):
+    """Writes one face's variable font with the given axes and returns its path and how each glyph was made"""
+    glyphs, cmap, adv, made = face_glyphs(font, traces, face, chars, axes)
     ds = DesignSpaceDocument()
-    ds.addAxis(AxisDescriptor(**AXIS))
-    for i, m in enumerate(MASTERS):
+    for ax in axes:
+        ds.addAxis(AxisDescriptor(**ax, map=opsz_map() if ax is OPSZ else []))
+    names = {ax["tag"]: ax["name"] for ax in axes}
+    for i, loc in enumerate(locations(axes)):
         src = SourceDescriptor()
         src.font = master_font(font, face, glyphs, cmap, adv, i, family, style)
-        src.location, src.name = {AXIS["name"]: m}, f"{style} bleed {m}"
+        src.location = {names[t]: v for t, v in loc.items()}
+        src.name = f"{style} " + " ".join(f"{t} {v:g}" for t, v in loc.items())
         ds.addSource(src)
     inst = InstanceDescriptor()
-    inst.familyName, inst.styleName, inst.location = family, style, {AXIS["name"]: AXIS["default"]}
+    inst.familyName, inst.styleName, inst.location = family, style, {ax["name"]: ax["default"] for ax in axes}
     ds.addInstance(inst)
     vf, _, _ = varLib.build(ds)
     italic = face != styles.primary()
-    buildStatTable(vf, [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)]),
-                        dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
+    buildStatTable(vf, [dict(tag=ax["tag"], name=ax["name"], values=[dict(value=ax["default"], name="Regular", flags=0x2)]) for ax in axes]
+                   + [dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
     log.log.info("%s %s kerns %d pairs", family, style, add_kerning(vf, font, SCALE / base_bleed(font)[1]))
-    path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{AXIS['tag']}].ttf")
+    tags = ",".join(sorted(ax["tag"] for ax in axes))
+    path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{tags}].ttf")
     vf.save(path)
     return path, made
 
 
 def static(path, bleed, out=None):
-    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength"""
-    font = instantiateVariableFont(TTFont(path), {AXIS["tag"]: bleed})
+    """Saves a variable font fixed at one Bleed and its other axes' defaults as a static font in out, beside it by default, its family named for the strength"""
+    font = TTFont(path)
+    font = instantiateVariableFont(font, {a.axisTag: a.defaultValue for a in font["fvar"].axes} | {BLEED["tag"]: bleed})
     name = font["name"]
     family, style = name.getDebugName(1) + f" Bleed {bleed:g}", name.getDebugName(2)
     if "STAT" in font:

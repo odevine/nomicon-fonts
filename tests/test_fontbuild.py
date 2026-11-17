@@ -63,11 +63,12 @@ def built(tmp_path):
     return path, made
 
 
-def test_the_axis_runs_from_a_quarter_of_the_print_look_to_a_quarter_more_than_measured(tmp_path):
+def test_bleed_runs_from_a_quarter_of_the_print_look_to_a_quarter_more_and_optical_size_from_6_to_72_pt(tmp_path):
     path, made = built(tmp_path)
     vf = TTFont(path)
-    (ax,) = vf["fvar"].axes
-    assert (ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) == ("BLED", 25, 100, 125)
+    axes = [(ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) for ax in vf["fvar"].axes]
+    assert axes == [("BLED", 25, 100, 125), ("opsz", 6, 8, 72)]
+    assert path.name == "TestRules[BLED,opsz].ttf"
     assert made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
     assert vf["glyf"]["Aacute"].isComposite()
 
@@ -95,6 +96,65 @@ def test_the_print_look_fills_the_acute_notch_and_spreads_the_ink(tmp_path):
     assert notch[1] - notch[0] > 10
 
 
+def edge(font, glyph):
+    return np.vstack([fontbuild.dense(P) for c in fontbuild.design(font, "", glyph, fontbuild.SCALE) for _, P in c])
+
+
+def near(a, b):
+    """The furthest any point of either dense outline is from the other"""
+    return max(np.linalg.norm(a[:, None] - b[None], axis=2).min(1).max(), np.linalg.norm(b[:, None] - a[None], axis=2).min(1).max())
+
+
+def notch(font):
+    """The height of the V's notch, which the print look fills from its point"""
+    v = points(font, "V")
+    middle = v[np.abs(v[:, 0] - 300) < 40]
+    return middle[middle[:, 1] > 100][:, 1].min()
+
+
+def at(path, **loc):
+    return instantiateVariableFont(TTFont(path), {k.replace("bled", "BLED"): v for k, v in loc.items()})
+
+
+def test_the_print_look_grows_as_the_size_shrinks_and_the_default_size_is_the_bleed_look(tmp_path):
+    path, _ = built(tmp_path)
+    assert np.allclose(points(at(path, bled=100, opsz=8), "V"), points(at(path, bled=100), "V"))
+    assert np.allclose(points(at(path, bled=100, opsz=8), "A")[:, 0].min(), -5, atol=0.5)
+    heights = [notch(at(path, bled=100, opsz=o)) for o in (6, 8, 72)]
+    # the stronger the look the further the notch fills, so smaller sizes fill more
+    assert heights[0] > heights[1] > heights[2]
+    # the traced A moves by the change the look makes to its outline at the other sizes
+    assert all(np.abs(points(at(path, bled=100, opsz=o), "A") - points(at(path, bled=100, opsz=8), "A")).max() >= 0.5 for o in (6, 72))
+
+
+def test_optical_size_scales_the_measured_shares_of_spread_and_rounding():
+    assert fontbuild.size_gain(8) == {"d": 1, "r": 1}
+    g = fontbuild.size_gain(4)
+    assert np.isclose(g["d"], 1 + fontbuild.PHYSICAL["d"]) and np.isclose(g["r"], 1 + fontbuild.PHYSICAL["r"])
+    # a lighter look than an outline already carries cannot be drawn from it
+    assert fontbuild.strength(25, 72, t0=0.25) == (0.25, 0.25)
+    assert fontbuild.strength(100, 6) == (1 + fontbuild.PHYSICAL["d"] / 3, 1 + fontbuild.PHYSICAL["r"] / 3)
+
+
+def test_a_glyph_that_stops_bleeding_sooner_at_a_small_size_keeps_the_default_size_look_past_it():
+    ts = [m / 100 for m in fontbuild.MASTERS["BLED"]]
+    cols = {6: ["6@25", "6@50", "6@100", "6@125"], 8: ["8@25", "8@50", "8@100", "8@125"], 72: ["72@25", "72@50", "72@100", "72@125"]}
+    # at 6 pt the look stops at 50, at 8 pt it follows every step and at 72 pt it stops at 25, which is lighter anyway
+    out = fontbuild.no_lighter(cols, {6: 0.5, 8: 1.25, 72: 0.25}, ts, t0=0.25)
+    assert out[6] == ["6@25", "6@50", "8@100", "8@125"] and out[8] == cols[8] and out[72] == cols[72]
+
+
+def test_optical_size_interpolates_in_one_over_size(tmp_path):
+    path, _ = built(tmp_path)
+    seg = TTFont(path)["avar"].segments["opsz"]
+    keys = sorted(seg)
+    norm = lambda o: (o - 8) / (72 - 8) if o >= 8 else (o - 8) / (8 - 6)
+    mapped = lambda o: np.interp(norm(o), keys, [seg[k] for k in keys])
+    for o in (7, 12, 16, 24, 48):
+        want = (1 / 8 - 1 / o) / (1 / 8 - 1 / 72) if o >= 8 else -(1 / o - 1 / 8) / (1 / 6 - 1 / 8)
+        assert abs(mapped(o) - want) < 0.01
+
+
 def synthetic_baseline(tmp_path):
     target.use("rules")
     tmp_path.mkdir()
@@ -107,7 +167,8 @@ def test_the_synthetic_baseline_is_the_measuring_stick_built_at_bleed_25(tmp_pat
     static = TTFont(synthetic_baseline(tmp_path / "baseline"))
     assert "fvar" not in static and "gvar" not in static
     assert (static["name"].getDebugName(1), static["name"].getDebugName(6)) == ("Test Rules Bleed 25", "TestRulesBleed25-Regular")
-    assert np.allclose(points(static, "V"), points(instantiateVariableFont(TTFont(path), {"BLED": 25}), "V"))
+    # the fonts' quadratics are fitted to all their masters at once, so the two can differ by a point but not in shape
+    assert near(edge(static, "V"), edge(instantiateVariableFont(TTFont(path), {"BLED": 25}), "V")) <= 0.5
 
 
 def test_a_build_from_the_synthetic_baseline_starts_from_it_and_reaches_the_same_print_look(tmp_path):
@@ -119,21 +180,22 @@ def test_a_build_from_the_synthetic_baseline_starts_from_it_and_reaches_the_same
     assert made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
     vf = TTFont(again)
     assert vf["head"].unitsPerEm == 4000 and vf["hmtx"]["V"][0] == 620 * fontbuild.SCALE
-    edge = lambda f, g: np.vstack([fontbuild.dense(P) for c in fontbuild.design(f, "", g, fontbuild.SCALE) for _, P in c])
     at = lambda p, b, g: edge(instantiateVariableFont(TTFont(p), {"BLED": b}), g)
-    near = lambda a, b: max(np.linalg.norm(a[:, None] - b[None], axis=2).min(1).max(), np.linalg.norm(b[:, None] - a[None], axis=2).min(1).max())
     # the lowest master is the source's outline, less the short pieces folded into their neighbours, and the others land where the build from the measuring stick put them
     assert near(at(again, 25, "V"), edge(source, "V")) <= 1
     assert near(at(again, 100, "V"), at(path, 100, "V")) <= 3 and near(at(again, 125, "V"), at(path, 125, "V")) <= 3
     assert np.allclose(at(again, 100, "A")[:, 0].min(), -5, atol=0.5)
-    assert [p.name for p in (tmp_path / "again").iterdir()] == ["TestRules[BLED].ttf"]
+    # at Bleed 25 above the default size the look would be lighter than the baseline carries, so it stays the baseline
+    big = edge(instantiateVariableFont(TTFont(again), {"BLED": 25, "opsz": 72}), "V")
+    assert near(big, edge(source, "V")) <= 1
+    assert [p.name for p in (tmp_path / "again").iterdir()] == ["TestRules[BLED,opsz].ttf"]
 
 
 def test_publish_writes_woff_fonts_and_an_index_for_the_site(tmp_path):
     path, _ = built(tmp_path)
     fontbuild.publish({"regular": path}, tmp_path / "site")
     index = json.loads((tmp_path / "site" / "nomicon-rules.json").read_text())
-    assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [25, 100, 125]}
+    assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [25, 100, 125], "opsz": [6, 8, 72]}
     assert ord("V") in index["chars"]["regular"] and TTFont(tmp_path / "site" / "nomicon-rules-regular.woff").flavor == "woff"
 
 
