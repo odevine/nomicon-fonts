@@ -5,7 +5,7 @@ import { spacingTable } from './spacing.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../data');
-export const INSTANCE_TOL = 0.75;
+export const INSTANCE_TOL = 1.0;
 const STEP = 0.5;
 
 function rdp(pts, tol) {

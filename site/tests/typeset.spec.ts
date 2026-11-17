@@ -88,10 +88,10 @@ test('a repeated letter uses a different printed copy each time, and the mean re
 });
 
 test('letters that are not scanned appear as dashed cells that say so', async ({ page }) => {
-  await page.locator('#ts-text').fill('Ka 8');
+  await page.locator('#ts-text').fill('Ka @');
   await expect(page.locator('.set-svg .ghost')).toHaveCount(2);
   await expect(page.locator('.set-svg .ghost title').first()).toHaveText('K: not yet scanned');
-  await expect(page.locator('.ts-status')).toContainText('Not yet scanned: K 8');
+  await expect(page.locator('.ts-status')).toContainText('Not yet scanned: K @');
 });
 
 test('long text wraps inside the figure', async ({ page }) => {
@@ -209,9 +209,9 @@ test.describe('italic', () => {
   });
 
   test('an italic letter that is not scanned says so', async ({ page }) => {
-    await page.locator('#ts-text').fill('*X*');
-    await expect(page.locator('.set-svg .ghost title')).toHaveText('X (italic): not yet scanned');
-    await expect(page.locator('.ts-status')).toContainText('Not yet scanned: X (italic)');
+    await page.locator('#ts-text').fill('*7*');
+    await expect(page.locator('.set-svg .ghost title')).toHaveText('7 (italic): not yet scanned');
+    await expect(page.locator('.ts-status')).toContainText('Not yet scanned: 7 (italic)');
   });
 
   test('the italic sample button fills the text and the hint explains the asterisks', async ({ page }) => {

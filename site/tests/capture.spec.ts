@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs';
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const cal = read('calibration.json');
 const noise = read('noise.json');
-const glyphs: { name: string; char: string }[] = read('glyphs.json');
 
 test('the tone values come from the two calibration scans and read like the findings', () => {
   expect(cal.tone.a).toHaveLength(11);
@@ -49,53 +48,8 @@ test('the noise histogram adds up to the pairs, lives on the data page, and the 
   await expect(page.locator('.hist .bar')).toHaveCount(h.counts.filter((c: number) => c > 0).length);
 });
 
-test('the Noise Lab wipes between the two copies and shows their difference', async ({ page }) => {
+test('the Capture page passes axe', async ({ page }) => {
   await page.goto('/capture/');
-  await page.waitForSelector('.lab-pair .px-u[src]');
-  await expect(page.locator('.nl-cap')).toContainText('µm apart');
-  await page.locator('#nl-cut').fill('20');
-  expect(await page.locator('.lab-pair').evaluate((e) => (e as HTMLElement).style.getPropertyValue('--cut'))).toBe('20%');
-  await page.locator('[name=nl-glyph][value=a]').check({ force: true });
-  await expect(page.locator('.nl-cap')).toContainText('Printed a');
-  const info = read('noise/a.json');
-  await expect(page.locator('.nl-cap')).toContainText(info.pair_dev_um.toFixed(1));
-  await page.locator('[name=nl-view][value=diff]').check();
-  await expect(page.locator('.lab-pair canvas')).toBeVisible();
-  await expect(page.locator('.lab-pair .px-u')).toBeHidden();
-  const ink = await page.locator('.lab-pair canvas').evaluate((c) => {
-    const x = (c as HTMLCanvasElement).getContext('2d')!; const d = x.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let k = 3; k < d.length; k += 4) if (d[k] > 40) n++; return n / (d.length / 4);
-  });
-  expect(ink).toBeGreaterThan(0.005);
-  expect(ink).toBeLessThan(0.3);
-});
-
-test('every glyph scanned both ways has a noise pair and the picker is keyboard reachable, and axe passes', async ({ page }) => {
-  const paired = glyphs.filter((g) => read(`glyphs/${g.name}.json`).instances.some((i: { scans: string[] }) => i.scans.length > 1));
-  for (const g of paired) expect(() => read(`noise/${g.name}.json`), g.name).not.toThrow();
-  await page.goto('/capture/');
-  await page.waitForSelector('.picker');
-  expect(await page.locator('[name=nl-glyph]').count()).toBe(paired.length);
-  await page.locator('[name=nl-glyph]:checked').focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('[name=nl-glyph]:checked')).not.toHaveAttribute('value', 'e');
   const out = await new AxeBuilder({ page }).analyze();
   expect(out.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
-});
-
-test('the upright and turned copies are light on the dark paper in dark mode, in both views', async ({ browser }) => {
-  const ctx = await browser.newContext({ colorScheme: 'dark', viewport: { width: 1100, height: 900 } });
-  const page = await ctx.newPage();
-  await page.goto('/capture/');
-  await page.waitForSelector('.lab-pair .px-u[src]');
-  await expect(page.locator('.lab-pair .px-u')).toHaveCSS('filter', 'invert(1)');
-  await expect(page.locator('.lab-pair .px-t')).toHaveCSS('filter', 'invert(1)');
-  // the ink must be brighter than the paper behind it
-  const lum = async () => page.locator('.lab-pair').evaluate(async (el) => {
-    const r = el.getBoundingClientRect();
-    return { w: r.width, bg: getComputedStyle(document.body).backgroundColor };
-  });
-  expect((await lum()).bg).toBe('rgb(22, 22, 22)');
-  await page.locator('[name=nl-view][value=diff]').check();
-  await expect(page.locator('.lab-pair canvas')).toHaveCSS('filter', 'invert(1)');
-  await ctx.close();
 });

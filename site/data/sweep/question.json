@@ -1,1 +1,1 @@
-{"rows":[{"n":1,"rms_vs_ref_um":7.078621187085237,"p10":7.078621187085237,"p90":7.078621187085237,"noise_model_um":5.005341042838739}],"floor_um":5.005341042838739,"single_noise_um":5.005341042838739,"recommended_n":1,"instances_swept":1}
+{"rows":[{"n":1,"rms_vs_ref_um":7.1942571934550985,"p10":7.1942571934550985,"p90":7.1942571934550985,"noise_model_um":5.0871080470922}],"floor_um":5.087108047092199,"single_noise_um":5.0871080470922,"recommended_n":1,"instances_swept":1}

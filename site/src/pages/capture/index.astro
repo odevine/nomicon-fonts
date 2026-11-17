@@ -1,18 +1,10 @@
 ---
 import Page from '../../layouts/Page.astro';
-import { glyphs, glyph, calibration, noisePair, hasPair, pairInfo, fmt } from '../../lib/data';
-import { cardName, deg, glyphLabel, bbox } from '../../lib/format';
-import { fitCrops, place, placeStyle, baselinePct } from '../../lib/labfit';
+import { calibration, noisePair, fmt } from '../../lib/data';
 import { href } from '../../lib/site';
 
 const cal = calibration();
 const { lead } = noisePair();
-// a glyph with no instance scanned both upright and turned has no pair to show
-const boxes = glyphs().filter((g) => hasPair(g.name)).map((g) => ({ g, box: bbox(glyph(g.name).mean['0.5']), crop: pairInfo(g.name) }));
-const fit = fitCrops(boxes.map((b) => ({ crop: b.crop, box: b.box })));
-const gl = boxes.map(({ g, box }) => ({ name: g.name, char: g.char, style: g.style, y0: box.y0 }));
-const first = pairInfo('e');
-const firstStyle = placeStyle(place(first, boxes.find((b) => b.g.name === 'e')!.box.y0, fit));
 const ppi = cal.summary.px_per_mm * 25.4;
 const px_um = 25400 / 1200;
 
@@ -41,7 +33,7 @@ const mid = tp.indexOf(50);
     <h1>Capture</h1>
     <p class="lede">Every card is scanned twice on a flatbed scanner, and a printed target keeps the scanner honest.</p>
     <p>Each card goes on the glass at 1200 ppi in greyscale, saved without compression. The scanner’s own straightening stays switched off, because it resamples the image and changes the weight of the strokes.</p>
-    <p>Each card is scanned once upright and once turned a quarter turn, which puts the same printed letter on two different pixel grids. Averaging the two copies cuts the noise of the scan by about a third, and the difference between them measures that noise directly. The Noise Lab below shows what that looks like.</p>
+    <p>Each card is scanned once upright and once turned a quarter turn, which puts the same printed letter on two different pixel grids. Averaging the two copies cuts the noise of the scan by about a third, and the difference between them measures that noise directly. One scan is off by about {fmt(lead.single_scan_um)} µm at the edge and the mean of a pair by about {fmt(lead.pair_mean_um)} µm, about the size of the real differences between two printed copies of a letter, which is why many copies are stacked. The distribution over all pairs is on the <a href={`${href('/data/')}#noise`}>data page</a>.</p>
     <p>A calibration target printed on paper is scanned both ways too. It reads {fmt(cal.summary.px_per_mm, 2)} pixels per millimetre, which is {fmt(ppi, 0)} ppi, the same in both directions to within {fmt(cal.summary.scan_anisotropy * 100, 2)} %. The two things below set the limits on what the project can claim.</p>
   </article>
 
@@ -87,24 +79,6 @@ const mid = tp.indexOf(50);
     <p class="src">The scale from each ruler, every edge width and the tone values are in the tables on the <a href={`${href('/data/')}#calibration`}>data page</a>.</p>
   </section>
 
-  <section aria-labelledby="lab">
-    <h2 id="lab">Noise Lab</h2>
-    <article>
-      <p>Drag the line across one letter to compare its two copies, or switch to the difference. It’s the same ink, so anywhere they disagree is scan noise.</p>
-    </article>
-    <noise-lab data-base={href('/data/')} data-glyphs={JSON.stringify(gl)} data-fit={JSON.stringify(fit)}>
-      <div class="lab">
-        <div class="lab-stage">
-          <div class="lab-pair" style={`--base:${baselinePct()}`}>
-            <div class="layer"><img class="ink-img" src={href(`/data/noise/e_u.webp`)} width={first.w} height={first.h} style={firstStyle} alt={`The letter e, scanned at ${deg(first.upright_angle)}`} /></div>
-            <div class="layer"><img class="ink-img" src={href(`/data/noise/e_t.webp`)} width={first.w} height={first.h} style={firstStyle} alt={`The letter e, scanned at ${deg(first.turned_angle)}`} /></div>
-          </div>
-          <p class="cap">Two copies of one printed e from {cardName(first.card)}, scanned at {deg(first.upright_angle)} and {deg(first.turned_angle)}.</p>
-        </div>
-        <p class="cap">This noise is about the size of the real differences between two printed copies of a letter, which is why each card is scanned twice and many copies are stacked. One scan is off by about {fmt(lead.single_scan_um)} µm at the edge and the mean of a pair by about {fmt(lead.pair_mean_um)} µm. The distribution over all pairs is on the <a href={`${href('/data/')}#noise`}>data page</a>.</p>
-      </div>
-    </noise-lab>
-  </section>
   </div>
 </Page>
 <script>import '../../scripts/capture';</script>
@@ -124,20 +98,5 @@ const mid = tp.indexOf(50);
   .tone .pa { fill: var(--ink); } .tone .pb { fill: var(--paper); stroke: var(--blue); stroke-width: 2; }
   .tone .cursor { stroke: var(--red); stroke-width: 1.5; }
   .tone:focus-visible { outline-offset: 4px; }
-  .lab { margin: 1.5rem 0; max-width: 34rem; }
-  /* one fixed window in font units: every letter is drawn at the same size on the same baseline */
-  .lab-pair { position: relative; width: 100%; max-width: 22rem; aspect-ratio: 700 / 1010; border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(var(--rule), var(--rule)) 0 var(--base, 75%) / 100% 1px no-repeat, var(--fill); }
-  .lab-pair .layer { position: absolute; inset: 0; }
-  .lab-pair img, .lab-pair canvas { position: absolute; display: block; }
-  .lab-pair [hidden], .nl-wipe[hidden] { display: none; }
-  .lab-pair .layer.cut { clip-path: inset(0 0 0 var(--cut, 50%)); }
-  .lab-pair .divider { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); border-left: 2px solid var(--red); pointer-events: none; }
-  .picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1rem; padding: 0; border: 0; }
-  .picker legend { font-family: var(--label); font-style: italic; font-size: 0.9rem; margin-bottom: 0.4rem; padding: 0; }
-  .picker label { position: relative; }
-  .picker input { position: absolute; opacity: 0; inset: 0; }
-  .picker span { display: inline-block; min-width: 2.3rem; text-align: center; padding: 0.25rem 0.5rem; border: 0; border-radius: 0.8rem; background: var(--fill); cursor: pointer; font-size: 1.1rem; }
-  .picker input:checked + span { border-color: var(--red); background: var(--red); color: #fff; }
-  .picker input:focus-visible + span { outline: 2px solid var(--red); outline-offset: 2px; }
   @media (max-width: 52rem) { tone-curve { grid-template-columns: 1fr; } }
 </style>

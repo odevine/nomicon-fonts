@@ -76,8 +76,9 @@ charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:;!?'
 px_per_em = 591.72
 aspect = 1.0147
 ink_spread = 1.55
-# print scales searched relative to px_per_em
-scale_range = [0.80, 1.06]
+# print scales searched relative to px_per_em, reaching down to the small print of a card crowded with text, as Comet,
+# Stellar Pup is printed at about 0.67
+scale_range = [0.62, 1.06]
 min_iou = 0.85
 min_margin = 0.10
 # pairs alike in shape that print at different heights, low one first, labelled by where the unit sits on its line

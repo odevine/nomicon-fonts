@@ -1,11 +1,13 @@
 """A scan folder's cards file: every card scanned in the folder, with its printed name and text, and the scans of it
 
 A cards file is JSON with a list of cards, each with an `id`, its printed `name`, its `text` as an object whose `rules`
-and `flavor` each list the section's paragraphs as printed (other italic text between underscores and a printed
-underscore written as \\_), optionally its `set`, collector `number` and rules `box` as y0 y1
-x0 x1 fractions of the card for a frame that puts the box elsewhere, and its `scans`, each a `file` relative to the cards
-file's folder, the `angle` the card is turned counterclockwise in the scan image in degrees, and optional `notes`. The
-id groups the scans of one physical card and names it on the site, so it is CamelCase without spaces, accents or colons
+and `flavor` each list the section's paragraphs as printed (text in the other face between underscores and a printed
+underscore written as \\_), optionally its `set`, collector `number` and rules `box` as y0 y1 x0 x1 fractions of the card
+for a frame that puts the box elsewhere, or a list of them in reading order for a frame that splits the text, its
+`size_mm` as width and height inside the border for a white-bordered card, whose border the card finder cannot see
+against the scanner bed, and its `scans`, each a `file` relative to the cards file's folder, the `angle` the card is
+turned counterclockwise in the scan image in degrees, and optional `notes`. The id groups the scans of one physical card
+and names it on the site, so it is CamelCase without spaces, accents or colons
 """
 import json
 from pathlib import Path
@@ -68,11 +70,12 @@ def load(path):
 
 
 def scans(path):
-    """Every scan of the cards file in order, as dicts with the scan path, card id, angle, printed name, text and box"""
+    """Every scan of the cards file in order, as dicts with the scan path, card id, angle, printed name, text, box and size"""
     out = []
     for c in load(path):
         for s in c["scans"]:
-            out.append(dict(path=s["path"], card=c["id"], angle=float(s["angle"]), name=c.get("name", ""), text=c.get("text"), box=c.get("box")))
+            out.append(dict(path=s["path"], card=c["id"], angle=float(s["angle"]), name=c.get("name", ""), text=c.get("text"),
+                            box=c.get("box"), size_mm=c.get("size_mm")))
     by = {}
     for r in out:
         by.setdefault(r["card"], []).append(r["angle"])
