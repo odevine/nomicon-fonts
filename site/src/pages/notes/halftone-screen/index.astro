@@ -51,7 +51,7 @@ const img = (f: string) => href(`/data/notes/${f}`);
         <figcaption>Coverage of a line of Reef Worm’s rules text before and after the notch filter. Some texture survives, from the halos and the scanner’s banding.</figcaption>
       </figure>
       <p>Run through the unchanged pipeline, the filtered scan kept exactly the same letters as the baseline, so I could compare every copy with itself.</p>
-      <div class="mid scroll">
+      <div class="mid scroll" tabindex="0" role="region" aria-label="Notch filter table">
         <table>
           <caption>The notch filter against the baseline on Focused Funambulist</caption>
           <thead><tr><th>Measure</th><th class="r">Baseline</th><th class="r">Narrow notch</th><th class="r">Wider notch</th></tr></thead>
@@ -72,7 +72,7 @@ const img = (f: string) => href(`/data/notes/${f}`);
     <section class="flow" aria-labelledby="floor">
       <h2 id="floor">Lowering the floor</h2>
       <p>With the dots filtered out, the floor could come down from a quarter of ink and keep more of each edge. My first try lowered the floor to 0.10 and left the ceiling at 0.75. That turned out to change two things at once. The pipeline traces each stack at half coverage, and with the range now running from 0.10 to 0.75, half coverage sits at 42.5 percent of the ink level rather than 50.</p>
-      <div class="mid scroll">
+      <div class="mid scroll" tabindex="0" role="region" aria-label="Floors table">
         <table>
           <caption>Lower floors on the filtered and the raw scan, against the baseline</caption>
           <thead><tr><th>Run</th><th>Range</th><th class="r">Letters kept</th><th class="r">Distance change, µm</th><th class="r">Stroke weight, µm</th></tr></thead>

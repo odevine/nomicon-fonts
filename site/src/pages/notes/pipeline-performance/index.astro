@@ -15,7 +15,7 @@ const n = note('/notes/pipeline-performance/');
 
     <section class="flow" aria-labelledby="glance">
       <h2 id="glance">The three rounds at a glance</h2>
-      <div class="mid scroll">
+      <div class="mid scroll" tabindex="0" role="region" aria-label="Time and memory table">
         <table>
           <caption>Time and memory from the original code to the end of the third round</caption>
           <thead><tr><th>Measure</th><th class="r">Original</th><th class="r">Round 1</th><th class="r">Round 2</th><th class="r">Round 3</th></tr></thead>
@@ -60,7 +60,7 @@ const n = note('/notes/pipeline-performance/');
       <p>Partway through the third round, a comparison failed. The stacks themselves had moved by less than 0.01 µm, well inside the limit. But the published distance between each stack and the font had moved by up to 0.18 µm, and nearly every letter’s figure had gone up by a few hundredths.</p>
       <p>The difference turned out to be in how the font is placed over the stacks, not in the stacks. The font is sized, turned and positioned once, fitted to <em>e</em>, and every other letter is measured through that placement. A change of three parts in a hundred thousand in <em>e</em>’s stack had moved the fitted rotation from −0.0005 to −0.0001 radians, and that rotation moved every other letter’s figure a little.</p>
       <p>A rotation fitted to one letter is only loosely pinned down, so some movement is expected, but this was more than that. Holding the rotation fixed at small steps and fitting everything else showed a cost surface full of fine dips. The fit measured each point’s distance to the nearest vertex of the font’s outline, and that distance has a small kink midway between vertices. The fit just settled into whichever dip its starting point led to.</p>
-      <div class="mid scroll">
+      <div class="mid scroll" tabindex="0" role="region" aria-label="Fitted rotation table">
         <table>
           <caption>The fitted rotation of <em>e</em>, in radians, before and after a tiny change to its stack</caption>
           <thead><tr><th>Distance to the outline</th><th class="r">Before</th><th class="r">After</th><th class="r">Fit time</th></tr></thead>
