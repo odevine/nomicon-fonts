@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 const glyphs: { name: string }[] = JSON.parse(readFileSync('data/glyphs.json', 'utf8'));
-const paths = ['/', '/capture/', '/cleaning/', '/bleed/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/data/', '/about/', `/glyphs/${glyphs[0].name}/`];
+const paths = ['/', '/capture/', '/cleaning/', '/bleed/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/notes/axes/', '/data/', '/about/', `/glyphs/${glyphs[0].name}/`];
 
 // Every block in main is centred and no wider than its tier: text 38rem, .mid 46rem, .wide 62rem, .full unlimited. See DESIGN.md
 test.use({ viewport: { width: 1600, height: 900 } });

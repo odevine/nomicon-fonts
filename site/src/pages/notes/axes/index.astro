@@ -1,0 +1,102 @@
+---
+import Page from '../../../layouts/Page.astro';
+import { href, note, noteDate } from '../../../lib/site';
+
+const n = note('/notes/axes/');
+---
+<Page title="Four axes, two kept" description={n.blurb}>
+  <div class="flow">
+    <article>
+      <p class="kicker"><a href={href('/notes/')}>Notes</a> · <time datetime={n.date}>{noteDate(n.date)}</time></p>
+      <h1>Four axes, two kept</h1>
+      <p class="lede">Nomicon Rules started as a variable font with one axis, Bleed, which only exists because the font is measured from print. I wanted to know what else it could vary along and still stay honest to the cards, so I tried the three axes a type designer would reach for next: optical size, weight and slant.</p>
+      <p>Each axis needs masters, outlines at the ends of its range with the same points in the same order, so a browser can blend between them. That turned out to be the easy part. The hard part was finding evidence on the cards for what each master should look like, since the cards only print one size, one weight and two faces. Bleed and weight are in the font now. Optical size is built and held back, and slant didn’t get past the measurements.</p>
+      <p>All the numbers here are from the 80 scans of the full_v1 session. One unit of the measuring stick’s em is about 3.15 µm at the printed size.</p>
+    </article>
+
+    <section class="flow" aria-labelledby="bleed">
+      <h2 id="bleed">Bleed is the axis the cards actually show</h2>
+      <p>Every face has a print look, the ink spread and corner rounding that draw the measuring stick closest to that face’s own stacks. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> covers how it was fitted. The regular face spreads by about 12 µm and the italic by a little more. The Bleed axis sets the strength of that look in percent: 100 is what the cards show, 25 leaves a quarter of it, and 125 is a quarter stronger than measured.</p>
+      <p>Measured against the measuring stick’s sharp outline, the look does most of its work at the corners. Ink fills the inside of a sharp corner and rounds off the outside of one, and the sharper the corner, the more it changes.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>How far the stacks fill inner corners and round outer ones, median µm, by corner angle</caption>
+          <thead><tr><th>Corner</th><th class="r">Regular</th><th class="r">Italic</th></tr></thead>
+          <tbody>
+            <tr><td>Inner, under 60°</td><td class="r">60</td><td class="r">54</td></tr>
+            <tr><td>Inner, 60 to 90°</td><td class="r">37</td><td class="r">42</td></tr>
+            <tr><td>Outer, under 60°</td><td class="r">58</td><td class="r">56</td></tr>
+            <tr><td>Outer, 60 to 90°</td><td class="r">34</td><td class="r">38</td></tr>
+            <tr><td>Outer, 90 to 120°</td><td class="r">26</td><td class="r">23</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>One look per face doesn’t fit every corner. In the regular face it fills the sharpest inner corners about 10 µm further than they print, and in the italic it leaves outer corners 7 to 12 µm less round. I think that’s close enough for an axis whose job is to show the look, not to replace the traces.</p>
+      <p>The masters sit at 25, 50, 100 and 125. A glyph that hasn’t been traced yet starts from the synthetic baseline, the measuring stick drawn at 25, and each step up draws the rest of the look on it and moves the same points onto the new edge. At 100 those glyphs land a median 1.5 µm from the look’s edge in the regular and 1.2 µm in the italic, under the 1.9 µm it takes to read that edge from its grid at all. A traced glyph is its trace at 100 and moves by the change the look makes at the other strengths. Where the look closes a slit or pinches two strokes together, the points can’t follow, so 8 glyphs stop at 100 and keep that shape up to 125.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="opsz">
+      <h2 id="opsz">Optical size is built, but the cards can’t pin it down yet</h2>
+      <p>Optical size seemed like the natural next axis. Rules text is shrunk to fit its box, so the cards print it at a range of sizes, and ink that spreads a fixed width on paper should be a larger share of a smaller letter. If the whole look held a fixed width, a letter printed at two thirds the size would carry half again as much of it.</p>
+      <p>To test that, I stacked each card’s copies of the 37 glyphs that print 60 or more times, 5974 copies over 40 cards printed between 0.66 and 1.0 of full size, and fitted the print look card by card. Each part of the look then gets a share φ that stays fixed on paper, with the rest scaling with the type.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>The share of each part of the print look that holds a fixed width on paper, with a 95 % interval from resampling the cards</caption>
+          <thead><tr><th>Part of the look</th><th class="r">Pooled</th><th class="r">φ</th><th class="r">Interval</th></tr></thead>
+          <tbody>
+            <tr><td>Ink spread</td><td class="r">12.8 µm</td><td class="r">0.14</td><td class="r">−1.02 to 1.34</td></tr>
+            <tr><td>Rounding</td><td class="r">37.0 µm</td><td class="r">0.51</td><td class="r">−0.25 to 1.41</td></tr>
+            <tr><td>Edge width</td><td class="r">17.9 µm</td><td class="r">0.79</td><td class="r">0.54 to 0.89</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The edge width comes out close to a fixed width on paper, which is what I’d expect, since it’s mostly the scanner’s blur. That’s reassuring about the method, but the blur isn’t part of the font. The two parts that are, the spread and the rounding, have intervals that run from below zero to above one. The trouble is that ink spread varies by 5.1 µm from card to card, more than it changes across the whole range of print sizes, so 40 cards can’t separate the two.</p>
+      <p>I built the axis anyway to see what it would cost. It runs from 6 to 72 pt with a default of 8, since rules text prints at 8.9 pt at full size and the stacks average to 7.8. At 6 pt the rounding is 17 % stronger and at 72 pt it’s 45 % lighter, so small sizes print rounder rather than heavier. It interpolates cleanly with Bleed, but it takes 12 masters instead of 4, and the site’s fonts grow from about 200 KB to 490 KB each.</p>
+      <p>That’s a lot of font for a shape the measurements can’t tell from zero, so I’ve held it back. The full scan list should help, especially cards printed small, and if the intervals narrow the axis is ready to go in.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="weight">
+      <h2 id="weight">Weight has to be grown, since no card prints a bold</h2>
+      <p>There’s no bold rules text on these cards, so a bold master can’t be measured from print. I looked at three ways to make one anyway.</p>
+      <p>The stack itself seemed worth a try first. Reading the edge further out on each glyph’s stack gives a heavier letter, but only by about 22 µm each side, 17 % heavier where the measuring stick’s bold is 71 %, and it thickens horizontal strokes as much as vertical ones. That’s the same move Bleed’s ink spread already makes, so it’s more Bleed, not a bold.</p>
+      <p>The measuring stick’s bold would make a fine master, but every bold glyph would then be its drawing with the print look on top and no print behind it. I think that’s too much of someone else’s design to put in the release, so I didn’t build it.</p>
+      <p>What I built instead grows each glyph’s own regular outline. The measuring stick’s bold says how far: its stems are 30 units heavier each side and its horizontal strokes only 5, so the grown outline moves six times further across than up and down. Growing evenly shuts the small counters, the eye of a and e down to a quarter of their area, where the designed bold keeps three quarters. Growing unevenly keeps them about as open as the designed bold does. Every point moves out along the mitre of its neighbours, outer corners are cut at twice the offset, the notch of a V or the crotch of an n closes up where its grown sides cross, and the baseline, x-height, cap height and descender stay where they were.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Distance from the measuring stick’s bold on a to z, A to Z and 0 to 9, regular face at Bleed 25</caption>
+          <thead><tr><th>Outline</th><th class="r">Median µm</th><th class="r">Lowercase µm</th></tr></thead>
+          <tbody>
+            <tr><td>The regular as it is</td><td class="r">75</td><td class="r">75</td></tr>
+            <tr><td>Grown to 700</td><td class="r">48</td><td class="r">34</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The grown n stem is 146 units against the designed bold’s 145. Most of what’s left is design rather than weight: the bold is wider set, its serifs are drawn heavier, and its figures change shape entirely, which is why the lowercase lands closest. The italic has nothing to measure a 700 against, since the only heavier italic in the measuring stick is a semibold.</p>
+      <p>The bold also does something to Bleed. Its counters and notches are narrower, so the print look shuts them sooner, and many glyphs stop bleeding well before 125.</p>
+      <div class="mid scroll">
+        <table>
+          <caption>Glyphs that stop following Bleed at the top weight, regular and italic</caption>
+          <thead><tr><th>Top weight</th><th class="r">Before 125</th><th class="r">At 25</th></tr></thead>
+          <tbody>
+            <tr><td>600</td><td class="r">45 and 54</td><td class="r">5 and 13</td></tr>
+            <tr><td>700</td><td class="r">63 and 70</td><td class="r">14 and 25</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A glyph that stops at 25 doesn’t change with Bleed at all at that weight, and I think that misses the point of this font. So the axis now tops out at a semibold, 600, with the outline grown two thirds as far. It still reads as a heavier weight, and only 5 regular and 13 italic glyphs stop at 25. The site is set in it, so the site name and the table headings use the grown semibold. The fonts roughly double in size, and the top master is still a weight no card has printed, which makes it synthetic in a way the rest of the font isn’t.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="slant">
+      <h2 id="slant">Slant would blend two different designs</h2>
+      <p>The cards do print two faces, so I hoped a slant axis could run between them. It can’t, at least not usefully.</p>
+      <p>The first problem is points. The regular and italic share 164 drawn glyphs, and only one of them, ×, has the same points in both faces, since every glyph takes its points from its own trace. The measuring stick isn’t much better, and among its letters only Z is compatible. The points could be mapped onto each other the same way the bold’s are, but that only hides the second problem.</p>
+      <p>The italic is a different design, not a sloped regular. Sheared by the 12 degrees that overlap it best, the regular lowercase sits a median 88 µm from the printed italic, about ten times further than the italic’s own traces sit from their stacks. The lowercase is narrower and redrawn: a, e, f, k, v and w change form, and f takes a descender. Halfway between a two storey a and a one storey a is neither. The capitals sit closer, at 46 µm, but an axis that only works for capitals isn’t much of an axis.</p>
+      <p>A plain oblique would interpolate trivially, but it would match nothing the cards print, and browsers already make one from the regular when asked. So the two faces stay a pair, linked as regular and italic in each font’s style table, which is how applications already treat them.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="now">
+      <h2 id="now">Where the font stands now</h2>
+      <p>Nomicon Rules ships with Bleed from 25 to 125 and Weight from 400 to 600, in a regular and an italic. Bleed is measured, and weight is grown from the measured outlines, about 34 µm from a designed bold on the lowercase. Optical size waits on more cards, and slant isn’t coming. You can try both axes that shipped on <a href={href('/typeset/')}>Typeset</a>, and <a href={href('/bleed/')}>Bleed</a> shows the look close up.</p>
+    </section>
+  </div>
+</Page>

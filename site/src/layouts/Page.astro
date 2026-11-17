@@ -23,6 +23,8 @@ const faces = [
     <title>{full}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href={href('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={href('/favicon.ico')} sizes="32x32" />
     <link rel="preload" href={href('/fonts/nomicon-rules-regular.woff')} as="font" type="font/woff" crossorigin />
     <style is:inline set:html={faces}></style>
   </head>

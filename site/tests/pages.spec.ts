@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const glyphs = read('glyphs.json');
-const paths = ['/', '/capture/', '/cleaning/', '/bleed/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
+const paths = ['/', '/capture/', '/cleaning/', '/bleed/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/notes/axes/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
 
 for (const p of paths) {
   test(`${p} builds, has a title and the Fan Content notice, and passes axe`, async ({ page }) => {
@@ -151,4 +151,20 @@ test('the old address of the Bleed page leads to it', async ({ page }) => {
   await page.goto('/printing-leaves-a-mark/');
   await expect(page).toHaveURL(/\/bleed\/$/);
   await expect(page.locator('h1')).toHaveText('Bleed');
+});
+
+test('the favicon is the stacked n, an SVG that follows the theme, an ICO fallback and a home screen PNG', async ({ page, request }) => {
+  await page.goto('/');
+  const icon = await page.locator('link[rel=icon][type="image/svg+xml"]').getAttribute('href');
+  // the home screen icon has no link, since some tab strips pick the largest icon listed, and iOS asks for it by this name anyway
+  await expect(page.locator('link[rel=apple-touch-icon]')).toHaveCount(0);
+  const svg = await (await request.get(icon!)).text();
+  expect(svg).toContain(read('glyphs/n.json').trace);
+  expect(svg).toContain('prefers-color-scheme:dark');
+  const png = await request.get('/apple-touch-icon.png');
+  expect(png.headers()['content-type']).toBe('image/png');
+  const buf = await png.body();
+  expect([buf.readUInt32BE(16), buf.readUInt32BE(20)]).toEqual([180, 180]);
+  const ico = await (await request.get(await page.locator('link[rel=icon][sizes]').getAttribute('href') as string)).body();
+  expect([ico.readUInt16LE(2), ico.readUInt16LE(4), ico[6], ico[22]]).toEqual([1, 2, 32, 16]);
 });
