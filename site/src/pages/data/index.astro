@@ -1,8 +1,8 @@
 ---
 import Page from '../../layouts/Page.astro';
 import { readdirSync } from 'node:fs';
-import { glyphs, glyph, sweepOf, noise, noisePair, cards, calibration, edgeLevels, fileSize, fmt, kerning, meta } from '../../lib/data';
-import { cardName, glyphLabel, countWord } from '../../lib/format';
+import { glyphs, glyph, sweepOf, noise, noisePair, cards, calibration, edgeLevels, fileSize, fmt, kerning, meta, corners } from '../../lib/data';
+import { cardName, glyphLabel, countWord, capital } from '../../lib/format';
 import { href } from '../../lib/site';
 import { SM, sweepAxes } from '../../lib/sweepmap';
 
@@ -37,6 +37,7 @@ const files = [
   ['noise.json', 'Comparison of views of the same printed glyph scanned at different angles'],
   ['calibration.json', 'Scale, isotropy, edge widths from the calibration scans'],
   ['cards.json', 'Cards, their scans, edge levels and print scale'],
+  ['corners.json', 'Edge offsets at the measuring stick’s corners by face and angle, and the Bleed page close ups'],
   ['steps/', 'Crops and figures for the cleaning steps'],
   ['pixels/', 'One small raw crop and its registered coverage per glyph, for the Stack’s pixel layers'],
 ];
@@ -59,14 +60,14 @@ const kb = (f: string) => `${Math.round(fileSize(f) / 1024)} KB`;
 const sizes: Record<string, string> = {
   'glyphs.json': `${fileSize('glyphs.json')} B`, 'kerning.json': `${Math.round(fileSize('kerning.json') / 1024)} KB`,
   'noise.json': `${fileSize('noise.json')} B`, 'calibration.json': `${fileSize('calibration.json')} B`, 'cards.json': `${fileSize('cards.json')} B`,
-  'built.json': kb('built.json'), 'kerning_samples.json': kb('kerning_samples.json'), 'metrics.json': `${fileSize('metrics.json')} B`, 'meta.json': `${fileSize('meta.json')} B`,
+  'built.json': kb('built.json'), 'kerning_samples.json': kb('kerning_samples.json'), 'metrics.json': `${fileSize('metrics.json')} B`, 'meta.json': `${fileSize('meta.json')} B`, 'corners.json': kb('corners.json'),
 };
 ---
-<Page title="Data and method" description="Every data file, how to reproduce it, and the limits.">
+<Page title="Data" description="Every data file, how to reproduce it, and the limits.">
   <article class="flow">
     <p class="kicker">Reference</p>
-    <h1>Data and method</h1>
-    <p class="lede">Every number on this site comes from a file in <span class="mono">site/data</span>, and <span class="mono">glyphstack.export_site</span> writes those files.</p>
+    <h1>Data</h1>
+    <p class="lede">Every number on this site comes from a file in <span class="mono">site/data</span>, and <span class="mono">glyphstack.export_site</span> writes those files, apart from the corner measurements, which <span class="mono">glyphstack.corners</span> writes.</p>
 
     <ul class="figures wide">
       {figures.map(([big, cap, to]) => (
@@ -76,7 +77,7 @@ const sizes: Record<string, string> = {
     <p class="proof">These come from one scanner and {Object.keys(cards()).length} cards, each scanned at 0° and 90°. The scans are read with the texture profile, which levels tinted text boxes and averages out a strong halftone screen. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but doesn’t recover finer detail.</p>
 
     <nav class="toc wide" aria-label="On this page">
-      <div><p class="kicker">Method</p><ul><li><a href="#calibration">Calibration</a></li><li><a href="#noise">Noise</a></li><li><a href="#edge-levels">Edge levels</a></li><li><a href="#limits">Limits</a></li></ul></div>
+      <div><p class="kicker">Method</p><ul><li><a href="#calibration">Calibration</a></li><li><a href="#noise">Noise</a></li><li><a href="#edge-levels">Edge levels</a></li><li><a href="#corners">Corners</a></li><li><a href="#limits">Limits</a></li></ul></div>
       <div><p class="kicker">Data</p><ul><li><a href="#glyphs">Glyphs</a></li><li><a href="#stacking">Stacking</a></li><li><a href="#spacing">Spacing</a></li><li><a href="#files">Files</a></li></ul></div>
     </nav>
 
@@ -118,6 +119,16 @@ const sizes: Record<string, string> = {
 
     <h2 id="edge-levels">Edge levels</h2>
     <p>To reproduce the same pooled ink area, each of the {lv.scans} scans needed its own coverage level, from {fmt(lv.min, 2)} to {fmt(lv.max, 2)}.</p>
+
+    <h2 id="corners">Corners</h2>
+    <p>At each corner of the measuring stick’s outline, a ray runs along the bisector out of the ink. The offset is where the stack’s edge crosses it, less where the sharp outline spread by the face’s ink spread crosses it, positive with the ink further out. Inner corners fill and outer corners round, more the sharper the corner. The last column is the same offset measured from the edge of the face’s print look, which is what the look leaves over. Only glyphs traced from their own copies count.</p>
+    <div class="scroll wide" tabindex="0" role="region" aria-label="Corner offsets table">
+      <table id="corner-table">
+        <caption>Median edge offset at each corner by face, kind and angle, from corners.json. The angle is the opening of an outer corner’s ink or of an inner corner’s white wedge.</caption>
+        <thead><tr><th>Face and corner</th><th class="r">Angle °</th><th class="r">Corners</th><th class="r">Offset µm</th><th class="r">Left by the look µm</th></tr></thead>
+        <tbody>{Object.entries(corners()).flatMap(([face, c]) => c.bins.map((b) => <tr><th scope="row">{capital(face)}, {b.kind}</th><td class="r">{b.lo} to {b.hi}</td><td class="r">{b.n}</td><td class="r">{fmt(b.stack_um, 0)}</td><td class="r">{fmt(b.left_um, 0)}</td></tr>))}</tbody>
+      </table>
+    </div>
 
     <h2 id="limits">Limits</h2>
     <p>Everything here comes from one scanner and {countWord(Object.keys(cards()).length)} cards, with an optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement, and the numbers comparing the stack against the design depend on one fit shared by every letter of a face. A glyph marked (prior) has fewer than {meta().min_instances} instances and is blended with the measuring stick, so its figures lean toward the design.</p>

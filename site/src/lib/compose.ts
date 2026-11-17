@@ -55,26 +55,31 @@ export function ghostAdvance(sp: Spacing, face: Face = 'regular') {
 
 const spaceAdvance = (sp: Spacing, cell: string) => (faceOf(cell) === 'italic' && sp.italic_metrics ? sp.italic_metrics : sp.metrics).space_adv;
 
-/** Offset of a glyph's origin from the previous glyph's advance edge, in font units. Between faces there is no measured pair, so observed spacing uses the average of the second glyph's face and designed spacing none */
-export function pairOffset(sp: Spacing, mode: Mode, a: string | null, b: string, avg: Record<Face, number>) {
+/** Kern value of a pair from a font that draws both cells, in font units, undefined when it can't say */
+export type Kern = (a: string, b: string) => number | undefined;
+
+/** Offset of a glyph's origin from the previous glyph's advance edge, in font units. Between faces there is no measured pair, so observed spacing uses the average of the second glyph's face and designed spacing none. Designed spacing takes a pair the cards didn't measure from kern */
+export function pairOffset(sp: Spacing, mode: Mode, a: string | null, b: string, avg: Record<Face, number>, kern?: Kern) {
   if (a === null || isSpace(a) || isSpace(b)) return 0;
   if (faceOf(a) !== faceOf(b)) return mode === 'designed' ? 0 : avg[faceOf(b)];
   const pair = sp.pairs[pairKey(a, b)];
-  if (mode === 'designed') return pair ? pair[2] : 0;
+  if (mode === 'designed') return pair ? pair[2] : kern?.(a, b) ?? 0;
   return pair && pair[0] >= MIN_SAMPLES ? pair[1] : avg[faceOf(b)];
 }
 
 /**
  * Sets text on lines no wider than maxWidth font units, wrapping at spaces. A glyph's origin follows the previous
- * origin by its advance plus the pair's observed offset, or its designed kern in designed mode
+ * origin by its advance plus the pair's observed offset, or its designed kern in designed mode. fallback gives the
+ * advance of a glyph with no trace when something else can draw it, which otherwise takes the face's mean advance,
+ * and kern the designed kern of a pair the cards didn't measure
  */
-export function layout(text: string, sp: Spacing, mode: Mode, maxWidth: number): Layout {
+export function layout(text: string, sp: Spacing, mode: Mode, maxWidth: number, fallback?: (cell: string) => number | undefined, kern?: Kern): Layout {
   const avg: Record<Face, number> = { regular: averageOffset(sp, 'regular'), italic: averageOffset(sp, 'italic') };
   const ghost: Record<Face, number> = { regular: ghostAdvance(sp, 'regular'), italic: ghostAdvance(sp, 'italic') };
   const lines: Placed[][] = [];
   const missing: string[] = [];
   let observed = 0, defaulted = 0, widest = 0, italic = false;
-  const advance = (cell: string) => (isSpace(cell) ? spaceAdvance(sp, cell) : cell in sp.glyphs ? sp.glyphs[cell].adv : ghost[faceOf(cell)]);
+  const advance = (cell: string) => (isSpace(cell) ? spaceAdvance(sp, cell) : cell in sp.glyphs ? sp.glyphs[cell].adv : fallback?.(cell) ?? ghost[faceOf(cell)]);
 
   for (const para of parse(text)) {
     let line: Placed[] = [];
@@ -91,7 +96,7 @@ export function layout(text: string, sp: Spacing, mode: Mode, maxWidth: number):
       const out: Placed[] = [];
       let x = from, p = prev;
       for (const ch of cells) {
-        const o = pairOffset(sp, mode, p, ch, avg);
+        const o = pairOffset(sp, mode, p, ch, avg, kern);
         out.push({ ch, x: x + o, adv: advance(ch), known: ch in sp.glyphs, space: isSpace(ch) });
         x = x + o + advance(ch);
         p = ch;

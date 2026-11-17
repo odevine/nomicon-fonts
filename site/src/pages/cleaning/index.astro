@@ -53,7 +53,7 @@ const sx = [
         <p>Native 1200 ppi greyscale, one pixel is {fmt(s.um_per_px)} µm. The card was scanned upright. The <em>e</em> sits among its neighbours, and the surface is halftone-printed, which is why the edges look dotted.</p>
         <p class="src">Crop of {cardName(s.card)} rules text, {s.s1.w} × {s.s1.h} px.</p></div>
       <figure class="panel"><svg viewBox={`0 0 ${s.s1.w} ${s.s1.h}`} role="img" aria-labelledby="p1t"><title id="p1t">Raw scan crop</title>
-        <image href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} />
+        <image class="px" href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} />
         <line class="bar" x1="10" x2={10 + px(200)} y1={s.s1.h - 12} y2={s.s1.h - 12} /></svg>
         <p class="legend">Red bar: 200 µm</p></figure>
     </section>
@@ -63,15 +63,15 @@ const sx = [
         <p>Blue is this <em>e</em>, one connected component. Red is neighbouring ink. Grey is a {s.s2.halo_px} px exclusion halo, so a neighbour’s ink can’t leak into this glyph’s edges.</p>
         <p>Pieces that belong together are joined before anything is named, such as an i and its dot, the halves of a quote or a letter and its accent. Each unit is then named by matching it against the measuring stick font in both faces. <a href={href('/notes/reading-every-mark/')}>Reading every mark</a> covers the joining rules.</p></div>
       <figure class="panel"><svg viewBox={`0 0 ${s.s1.w} ${s.s1.h}`} role="img" aria-labelledby="p2t p2d"><title id="p2t">Segmentation of the crop</title><desc id="p2d">The e in blue, neighbouring letters in red and a grey halo around them.</desc>
-        <image href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} opacity="0.35" /><image href={img(s.s2.file)} width={s.s1.w} height={s.s1.h} /></svg></figure>
+        <image class="px" href={img(s.s1.file)} width={s.s1.w} height={s.s1.h} opacity="0.35" /><image class="px" href={img(s.s2.file)} width={s.s1.w} height={s.s1.h} /></svg></figure>
     </section>
 
     <section class="step" id="step-3" aria-labelledby="h3s">
       <div class="txt"><p class="num">3</p><h2 id="h3s">Tone to ink coverage</h2>
         <p>Scan levels (paper {fmt(s.paper, 0)}, ink {fmt(s.ink, 0)}) map to coverage from 0 to 1. Left: linear coverage, with the paper texture visible. Right: texture below 0.25 suppressed, half of the edge kept, neighbours masked.</p>
         <p>Some text boxes sit on a tint, a gradient or faint art printed as a halftone screen. Before this step the box is divided by its local paper level, so a tint reads as plain paper, and where the screen is strong it’s blurred away, as <a href={href('/notes/text-over-texture/')}>Text printed over texture</a> describes. Over the strongest screen a trained network reads each letter’s coverage instead.</p></div>
-      <figure class="panel pair"><div class="sub"><p class="lab">linear coverage</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Linear coverage"><image class="ink-img" href={img(s.s3.linear)} width={w3} height={h3} /></svg></div>
-        <div class="sub"><p class="lab">cleaned</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Cleaned coverage"><image class="ink-img" href={img(s.s3.clean)} width={w3} height={h3} /></svg></div></figure>
+      <figure class="panel pair"><div class="sub"><p class="lab">linear coverage</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Linear coverage"><image class="ink-img px" href={img(s.s3.linear)} width={w3} height={h3} /></svg></div>
+        <div class="sub"><p class="lab">cleaned</p><svg viewBox={`0 0 ${w3} ${h3}`} role="img" aria-label="Cleaned coverage"><image class="ink-img px" href={img(s.s3.clean)} width={w3} height={h3} /></svg></div></figure>
     </section>
 
     <section class="step" id="step-4" aria-labelledby="h4s">
@@ -121,7 +121,7 @@ const sx = [
     <section class="step" id="step-9" aria-labelledby="h9s">
       <div class="txt"><p class="num">9</p><h2 id="h9s">Trace to Bézier curves</h2>
         <p>The 0.5 contour is fitted with cubic Béziers by potrace: {e.nodes} nodes for this glyph. Squares are nodes, blue dots are control points. The curve smooths out pixel noise but keeps the printed shape.</p>
-        <p>A glyph with fewer than {m.min_instances} copies is blended with the measuring stick’s outline, drawn with its face’s ink spread, edge and rounding, before it’s traced, and it’s marked as leaning on the font. A glyph that never prints is built from parts instead. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> has the detail.</p></div>
+        <p>A glyph with fewer than {m.min_instances} copies is blended with the measuring stick’s outline, drawn with its face’s ink spread, edge and rounding, before it’s traced, and it’s marked as leaning on the font. A glyph that never prints is drawn from the measuring stick’s outline with the print look, or from its letter and accent. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> has the detail.</p></div>
       <figure class="panel"><svg viewBox={viewBox(b, PAD)} role="img" aria-labelledby="p9t"><title id="p9t">Trace with nodes and control points</title>
         <path class="fill-grey" d={e.trace} fill-rule="evenodd" /><path class="outline" d={e.trace} fill-rule="evenodd" />
         {bz.handles.map(([x, y]) => <circle class="hnd" cx={x} cy={y} r="2.6" />)}
@@ -141,9 +141,12 @@ const sx = [
 </Page>
 <script>import '../../scripts/seq';</script>
 <style is:global>
-  .seq-nav { position: sticky; top: 0; z-index: 5; background: var(--paper); margin: 2rem 0 0; padding: 0.6rem 0; }
-  .seq-nav ol { display: flex; gap: 0.25rem; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
-  .seq-nav a { display: block; min-width: 2.2rem; text-align: center; padding: 0.2rem 0.5rem; font-family: var(--label); font-style: italic; font-size: 0.9rem; border: 0; border-radius: 999px; background: var(--fill); text-decoration: none; }
+  /* a pill the width of its numbers, centred, that lets the page show softly through it while it floats over the steps */
+  .seq-nav { position: sticky; top: 0.75rem; z-index: 5; width: fit-content; margin: 2rem 0 0; padding: 0.3rem; border: 1px solid var(--rule); border-radius: 1.4rem;
+    background: color-mix(in srgb, var(--paper) 80%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 4px 18px color-mix(in srgb, var(--ink) 8%, transparent); }
+  .seq-nav ol { display: flex; gap: 0.25rem; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; justify-content: center; }
+  /* the top padding lowers the numerals, which sit high in the line since the font keeps room for descenders they lack */
+  .seq-nav a { display: flex; align-items: center; justify-content: center; min-width: 2.2rem; height: 1.75rem; padding: 0.25em 0.5rem 0; line-height: 1; font-family: var(--label); font-style: italic; font-size: 0.9rem; border: 0; border-radius: 999px; background: var(--fill); text-decoration: none; }
   .seq-nav a[aria-current] { border-color: var(--red); background: var(--red); color: #fff; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .seq { margin-top: 1rem; }

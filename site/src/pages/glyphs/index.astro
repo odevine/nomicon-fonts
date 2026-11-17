@@ -48,8 +48,9 @@ const Group = faces.length > 1 ? 'h3' : 'h2';
 <Page title="Glyphs" description="The character set, one page per scanned glyph, laid out as a character sheet.">
   <p class="kicker">Character sheet</p>
   <h1>Glyphs</h1>
-  <p class="lede">The sheet follows the Latin Core character set from Google Fonts. Each scanned glyph links to its own page. A box with a dark border is a glyph built from the measuring stick, and an empty box is a character that hasn’t been scanned yet.</p>
+  <p class="lede">The sheet follows the Latin Core character set from Google Fonts. Each scanned glyph links to its own page. A low confidence glyph carries a red dot, a dimmed box is a glyph built from the measuring stick, and an empty box is a character that hasn’t been scanned yet.</p>
   <p class="legend-row"><span class="sw-ink">scanned</span><span class="sw-low">low confidence</span><span class="sw-built">built from the measuring stick</span><span class="sw-empty">not scanned yet</span></p>
+  <glyph-preview data-base={href('/fonts/')} data-view={`${(-W / 2).toFixed(1)} ${y0.toFixed(1)} ${W.toFixed(1)} ${(y1 - y0).toFixed(1)}`}></glyph-preview>
   <p class="src">Low confidence means fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for. A glyph with fewer than {m.min_instances} is built with the prior, which blends its stack with the measuring stick’s outline. A glyph with no instances at all is built the way the measuring stick builds it. An accented letter is its scanned or built letter and accent, placed where the measuring stick places them, and anything else is the measuring stick’s outline drawn with the ink spread, edge and rounding measured on its face’s scanned glyphs. The {sheet.length} cells leave out the {left} spaces and combining accents in the set, since they have nothing to draw on their own.</p>
   {faces.map(([face, title]) => (
     <section class="face wide" aria-labelledby={`face-${face}`}>
@@ -64,7 +65,7 @@ const Group = faces.length > 1 ? 'h3' : 'h2';
               const b = madeBy[face].get(ch);
               if (!row && b) {
                 return (
-                  <li class="built" title={hex(ch)}>
+                  <li class="built" title={hex(ch)} data-char={ch} data-face={face}>
                     <span class="vh">{glyphLabel(b.char, b.style)}, {hex(ch)}, built from the measuring stick</span>
                     <small class="n" aria-hidden="true">N {b.n}</small>
                     <span class="slot" aria-hidden="true"></span>
@@ -96,3 +97,4 @@ const Group = faces.length > 1 ? 'h3' : 'h2';
     </section>
   ))}
 </Page>
+<script>import '../../scripts/glyph-preview';</script>

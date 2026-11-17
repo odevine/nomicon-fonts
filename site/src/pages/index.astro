@@ -34,12 +34,20 @@ const cardCount = Object.keys(cards()).length;
     <h2 id="why">Why this exists</h2>
     <p>The text on a Magic card is set small and read constantly, but few people stop to look at the shapes of its letters. Those letters are printed in ink on card stock, so every copy is a little different. Ink spread rounds the corners, paper fibre roughens the edges, and the halftone screen breaks each stroke into dots.</p>
     <p>Real cards are scanned at 1200 ppi, many printed copies of each letter are stacked, and the stack is traced. The aim is to record the shape that actually printed, not to match the designed font, so where one copy differs from the others, that difference is part of the record too.</p>
-    <p>The plan is for all of this to become a typeface, Nomicon Rules, in regular and italic. This site shows how it’s made: how a halftone scan turns into one clean letter, and how the outline settles as more copies get stacked.</p>
+    <p>All of it goes into a typeface, Nomicon Rules, in regular and italic, and this site is set in it. Letters that haven’t been scanned yet stand in from the measuring stick for now. The site also shows how the font is made: how a halftone scan turns into one clean letter, how the outline settles as more copies get stacked, and what printing does to it.</p>
+    <h3>Font</h3>
     <ul class="doors">
+      <li><a href={href('/glyphs/')}><strong>The glyphs</strong><span>Every character of the set, scanned or built for now from the measuring stick.</span></a></li>
+      <li><a href={href('/typeset/')}><strong>Set your own text</strong><span>Type anything in the printed letters or in the font.</span></a></li>
+    </ul>
+    <h3>Process</h3>
+    <ul class="doors">
+      <li><a href={href('/capture/')}><strong>How the cards are scanned</strong><span>Two scans per card, and a printed target that sets the limits.</span></a></li>
       <li><a href={href('/cleaning/')}><strong>How one letter is cleaned</strong><span>Ten steps from a halftone scan to a traced shape.</span></a></li>
       <li><a href={href('/glyphs/e/')}><strong>Stack the letters</strong><span>Trace a glyph from more and more printed copies.</span></a></li>
-      <li><a href={href('/data/')}><strong>The numbers and the limits</strong><span>It’s {cardCount} cards on one scanner so far. The data page has the detail.</span></a></li>
+      <li><a href={href('/bleed/')}><strong>What printing does</strong><span>Ink fills sharp inner corners and rounds outer ones, and the font’s Bleed axis draws it.</span></a></li>
       <li><a href={href('/notes/')}><strong>Notes</strong><span>Longer write-ups of problems that came up along the way, like text printed over texture.</span></a></li>
+      <li><a href={href('/data/')}><strong>The numbers and the limits</strong><span>It’s {cardCount} cards on one scanner so far. The data page has the detail.</span></a></li>
     </ul>
     <p class="src" data-hero-note>The letter e behind this page is the trace of {e.n} printed instances from {e.cards.length} cards.</p>
   </section>

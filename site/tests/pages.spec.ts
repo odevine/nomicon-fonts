@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const read = (f: string) => JSON.parse(readFileSync(`data/${f}`, 'utf8'));
 const glyphs = read('glyphs.json');
-const paths = ['/', '/capture/', '/cleaning/', '/printing-leaves-a-mark/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
+const paths = ['/', '/capture/', '/cleaning/', '/bleed/', '/glyphs/', '/typeset/', '/notes/', '/notes/text-over-texture/', '/notes/halftone-screen/', '/notes/colour-against-grey/', '/notes/pipeline-performance/', '/notes/askew-scans/', '/notes/ink-over-screen/', '/notes/benchmark/', '/notes/reading-every-mark/', '/notes/rare-letters/', '/notes/two-angles/', '/data/', '/about/', ...glyphs.map((g: { name: string }) => `/glyphs/${g.name}/`)];
 
 for (const p of paths) {
   test(`${p} builds, has a title and the Fan Content notice, and passes axe`, async ({ page }) => {
@@ -138,4 +138,17 @@ test('notes are plain text with no proofreader label', async ({ page }) => {
   const content = await page.locator('.proof').first().evaluate((e) => getComputedStyle(e, '::before').content);
   expect(['none', 'normal']).toContain(content);
   await expect(page.locator('main')).not.toContainText('stet');
+});
+
+test('the nav lists the font pages, then the process in order, and About sits in the footer', async ({ page }) => {
+  await page.goto('/');
+  const groups = await page.$$eval('header nav .nav-group', (gs) => gs.map((g) => [g.querySelector('.nav-label')!.textContent, [...g.querySelectorAll('a')].map((a) => a.textContent)]));
+  expect(groups).toEqual([['Font', ['Glyphs', 'Typeset']], ['Process', ['Capture', 'Cleaning', 'Bleed', 'Notes', 'Data']]]);
+  await expect(page.locator('footer.site a', { hasText: 'About' })).toHaveAttribute('href', /\/about\/$/);
+});
+
+test('the old address of the Bleed page leads to it', async ({ page }) => {
+  await page.goto('/printing-leaves-a-mark/');
+  await expect(page).toHaveURL(/\/bleed\/$/);
+  await expect(page.locator('h1')).toHaveText('Bleed');
 });

@@ -7,7 +7,7 @@
   --blue: #1f55a0;
   --muted: color-mix(in srgb, var(--ink) 72%, var(--paper));
   --rule: color-mix(in srgb, var(--ink) 22%, var(--paper));
-  --serif: 'Stand-in Serif', 'Iowan Old Style', Georgia, serif;
+  --serif: 'Nomicon Rules', 'Stand-in Serif', 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --measure: 38rem;
   --container: 62rem;
@@ -41,7 +41,11 @@ a:hover { color: var(--red); }
 
 header.site { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; align-items: baseline; padding: 1.25rem var(--inset); }
 header.site .mark { font-size: 1.4rem; font-weight: 600; text-decoration: none; letter-spacing: 0.01em; }
-header.site nav ul { display: flex; flex-wrap: wrap; gap: 0.6rem 0.8rem; list-style: none; margin: 0; padding: 0; font-size: 0.85rem; font-variant: small-caps; letter-spacing: 0.06em; }
+/* the two nav groups sit side by side, each led by a quiet label */
+header.site nav { display: flex; flex-wrap: wrap; gap: 0.6rem 1.6rem; align-items: baseline; }
+.nav-group { display: flex; gap: 0.7rem; align-items: baseline; }
+.nav-label { font-family: var(--label); font-style: italic; font-size: 0.8rem; color: var(--muted); }
+header.site nav ul { display: flex; flex-wrap: wrap; gap: 0.6rem 0.7rem; list-style: none; margin: 0; padding: 0; font-size: 0.85rem; font-variant: small-caps; letter-spacing: 0.04em; }
 header.site nav a { text-decoration: none; position: relative; }
 /* the current page is marked by a printed full stop */
 header.site nav a[aria-current='page']::after { content: ''; position: absolute; left: 50%; bottom: -0.55em; width: 0.5em; height: 0.5em; transform: translateX(-50%); background: var(--red); -webkit-mask: var(--dot-2) center / contain no-repeat; mask: var(--dot-2) center / contain no-repeat; }
@@ -158,24 +162,32 @@ hero-stack { display: block; }
 .down { pointer-events: auto; color: var(--ink); line-height: 0; padding: 0.5rem; }
 .down:hover { color: var(--red); }
 .why { margin-top: 2rem; }
-.btn { font: inherit; font-family: var(--label); font-style: italic; font-size: 0.95rem; background: var(--fill); color: var(--ink); border: 0; border-radius: 0.9rem; padding: 0.45rem 1.1rem; cursor: pointer; text-decoration: none; display: inline-block; transition: background 0.2s ease-out; }
+[hidden] { display: none !important; }
+/* the top padding is larger to lower the label, which sits high since the font keeps room for descenders */
+.btn { font: inherit; font-family: var(--label); font-style: italic; font-size: 0.95rem; background: var(--fill); color: var(--ink); border: 0; border-radius: 0.9rem; padding: calc(0.45rem + 0.125em) 1.1rem calc(0.45rem - 0.125em); cursor: pointer; text-decoration: none; display: inline-block; transition: background 0.2s ease-out; }
 .btn:hover { background: var(--fill-hi); color: var(--ink); }
 .glyphmap .src { font-family: var(--label); font-style: italic; font-size: 0.75rem; color: var(--muted); }
 .legend-row { display: flex; gap: 1.25rem; flex-wrap: wrap; font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
 .legend-row span::before { content: ''; display: inline-block; width: 1.15rem; height: 1.15rem; margin-right: 0.5rem; vertical-align: -0.25em; border-radius: 0.4rem; background: var(--fill); }
 .legend-row .sw-low::before { background: radial-gradient(circle at 74% 26%, var(--red) 0 0.17rem, transparent 0.18rem), var(--fill); }
 .legend-row .sw-empty::before { background: none; box-shadow: inset 0 0 0 1.5px var(--rule); }
-.legend-row .sw-built::before { background: none; box-shadow: inset 0 0 0 1.5px var(--ink); }
-/* a glyph built from the measuring stick is a slot with a dark border, its outline left out so the font stays out of the data */
-.glyphmap li.built { border-radius: var(--r-md); position: relative; box-shadow: inset 0 0 0 1.5px var(--ink); padding: 1.5rem 0.5rem 0.6rem; text-align: center; }
-.glyphmap a.low svg { opacity: 0.4; }
-/* low confidence: a fainter letter and a printed red full stop in the corner */
+.legend-row .sw-built::before { background: color-mix(in srgb, var(--fill) 50%, transparent); }
+/* a glyph built from the measuring stick is a dimmed tile, drawn faint from the site's font */
+.glyphmap li.built { border-radius: var(--r-md); position: relative; background: color-mix(in srgb, var(--fill) 50%, transparent); padding: 1.5rem 0.5rem 0.6rem; text-align: center; }
+/* low confidence: a printed red full stop in the corner of an otherwise ordinary tile */
 .glyphmap a.low::after { content: ''; position: absolute; top: 0.55rem; right: 0.55rem; width: 0.7rem; height: 0.7rem; background: var(--red); -webkit-mask: var(--dot-4) center / contain no-repeat; mask: var(--dot-4) center / contain no-repeat; }
 /* a character not scanned yet is an empty slot, the same size as a filled tile so the sheet stays aligned */
 .glyphmap li.blank { border-radius: var(--r-md); position: relative; box-shadow: inset 0 0 0 1.5px var(--rule); padding: 1.5rem 0.5rem 0.6rem; text-align: center; }
 /* the count sits in the top left corner, the Unicode code takes the caption line below the glyph */
 .glyphmap small.n { position: absolute; top: 0.5rem; left: 0.65rem; height: auto; line-height: 1; font-size: 0.75rem; }
 .glyphmap .slot { display: block; height: 4.5rem; }
+/* glyphs drawn from the site's font follow the Bleed slider */
+.preview-glyph text, .set-svg .font text { fill: var(--ink); font-variation-settings: 'BLED' var(--bled, 100); }
+.glyphmap li.built svg.preview-glyph { display: block; margin: 0 auto; opacity: 0.4; }
+glyph-preview { display: block; }
+.preview-note { background: var(--fill); border-radius: var(--r-md); padding: 0.9rem 1.2rem; margin: 1rem 0; }
+.preview-note p { margin: 0; font-size: 0.9rem; }
+.preview-note .bleed-row { margin: 0.6rem 0 0; max-width: 24rem; }
 .face > .src { margin: 0.25rem 0 0; }
 .face h3, .face .group > h2 { font-family: var(--label); font-variant-caps: all-small-caps; letter-spacing: 0.14em; font-weight: 400; font-size: 1.05rem; color: var(--muted); margin: 2rem 0 0.6rem; }
 @media (prefers-reduced-motion: no-preference) {
@@ -234,7 +246,7 @@ input[type='range']::-moz-range-thumb { width: 1.5rem; height: 1.5rem; border: 0
 
 /* squircle corners where the browser has them, closer to the gradual rounding of ink than a circular arc */
 @supports (corner-shape: squircle) {
-  .toggles, .doors a, .glyphmap a, .glyphmap li.blank, .legend-row span::before, .stack-svg, .btn, .panel, .setter textarea, .set-out, .lab-pair, .picker span { corner-shape: squircle; }
+  .toggles, .doors a, .glyphmap a, .glyphmap li.blank, .glyphmap li.built, .legend-row span::before, .stack-svg, .btn, .panel, .setter textarea, .set-out, .lab-pair, .picker span { corner-shape: squircle; }
 }
 
 /* notes: scan figures on a soft fill, labelled strips, and tables set inside sections */
