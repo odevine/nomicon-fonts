@@ -200,3 +200,22 @@ test('the kern of a pair the cards did not measure comes from the font', async (
   await expect.poll(second).toBeLessThan(advance - 50);
   await expect(page.locator('.ts-spacing')).toContainText('the designed kern value for every pair');
 });
+
+test('the optical size follows the size until it is moved, and the set letters are drawn at it', async ({ page }) => {
+  const opsz = page.locator('#ts-opsz');
+  const drawn = () => page.evaluate(() => getComputedStyle(document.querySelector('.set-svg .font text')!).fontVariationSettings);
+  await expect(opsz).toHaveAttribute('min', '6');
+  await expect(opsz).toHaveAttribute('max', '72');
+  await expect(opsz).toHaveValue('40');
+  await expect.poll(drawn).toContain('"opsz" 40');
+  await page.locator('#ts-size').fill('120');
+  await expect(opsz).toHaveValue('72');
+  await opsz.fill('8');
+  await expect(page.locator('#ts-opsz-auto')).not.toBeChecked();
+  await expect(page.locator('.ts-oout')).toHaveText('8');
+  await expect.poll(drawn).toContain('"opsz" 8');
+  await page.locator('#ts-size').fill('60');
+  await expect(opsz).toHaveValue('8');
+  await page.locator('#ts-opsz-auto').check();
+  await expect(opsz).toHaveValue('60');
+});
