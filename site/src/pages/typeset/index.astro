@@ -17,7 +17,7 @@ const regular = Object.keys(sp.glyphs).length - italic;
 <Page title="Typeset" description="Set your own text with real printed letters, spaced the way the cards space them.">
   <p class="kicker">Typeset</p>
   <h1>Set something</h1>
-  <p class="lede">Type below. Each letter is a real printed one, and each repeat of a letter is a different printed copy.{italic > 0 && ' Text between asterisks is set in the italic face used for flavor and reminder text.'}</p>
+  <p class="lede">Type below. Every letter is a real printed one, and each time a letter repeats, you get a different printed copy of it.{italic > 0 && ' Text between asterisks is set in the italic face used for flavor and reminder text.'}</p>
   <type-setter class="wide" data-base={href('/data/')} data-default={DEFAULT}>
     <figure class="set-out">
       <svg class="set-svg" viewBox={`0 0 ${lay.width.toFixed(0)} ${lay.lines.length * lh}`} role="img" aria-labelledby="ts-t ts-d">
@@ -25,10 +25,10 @@ const regular = Object.keys(sp.glyphs).length - italic;
         <desc id="ts-d">The phrase set in the traced mean glyphs with the spacing observed on the cards.</desc>
         {lay.lines.map((ln, li) => ln.filter((c) => !c.space && c.known).map((c) => <g transform={`translate(${c.x.toFixed(1)} ${li * lh + sp.metrics.ascent})`}><path d={traces[c.ch]} fill-rule="evenodd" /></g>))}
       </svg>
-      <figcaption>Without scripts the phrase is set in the mean glyphs. The page lets you change the text.</figcaption>
+      <figcaption>Without scripts the phrase is set in the mean glyphs. With them, you can change the text.</figcaption>
     </figure>
   </type-setter>
-  <p class="proof">Only {regular} regular{italic > 0 && ` and ${italic} italic`} glyphs are scanned so far, from {Object.keys(cards()).length} pilot cards. Anything else shows as a dashed cell. The downloaded image is a picture of the set text, not the outlines.</p>
+  <p class="proof">Only {regular} regular{italic > 0 && ` and ${italic} italic`} glyphs have traces so far, from {Object.keys(cards()).length} cards, and anything else shows as a dashed cell. The image you download is a picture of the set text, not the outlines.</p>
 </Page>
 <script>import '../../scripts/typeset';</script>
 <style is:global>

@@ -22,10 +22,11 @@ test('the size chart and the closeness numbers use the exported numbers', async 
   await expect(page.locator('.size-row')).toHaveCount(Object.keys(cards).length);
   const top = Math.max(...Object.values(cards as Record<string, { print_scale: number }>).map((c) => c.print_scale));
   await expect(page.locator('.size-val').first()).toHaveText(top.toFixed(2));
-  const worst = Math.max(...glyphs.map((g: { edge_rms_um: number }) => g.edge_rms_um));
+  const scanned = glyphs.filter((g: { source: string }) => g.source === 'scanned');
+  const worst = Math.max(...scanned.map((g: { edge_rms_um: number }) => g.edge_rms_um));
   expect(worst).toBeLessThan(25400 / 1200);
   await expect(page.locator('main')).toContainText('Every letter is closer than one scanner pixel');
-  await expect(page.locator('.stat-line')).toContainText(`${glyphs.length} letters`);
+  await expect(page.locator('.stat-line')).toContainText(`${scanned.length} letters`);
 });
 
 test('the face is never named Plantin', async ({ page }) => {

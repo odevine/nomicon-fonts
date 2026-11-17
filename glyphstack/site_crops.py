@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage as ndi
 
-from . import styles, target
+from . import styles, target, texture
 from . import units as un
 from .contours import UM_PER_PX, contours_at
 from .log import Progress, log, timed
@@ -109,12 +109,19 @@ class Session:
         self.scans = ScanUnits(self.folder)
         self._card, self._places = None, None
 
-    def frame(self, scan):
-        """The card crop of a scan in the upright frame the units were cut in, loaded once and kept for the last scan used"""
+    def frame(self, scan, prepared=False):
+        """The card crop of a scan in the upright frame the units were cut in, loaded once and kept for the last scan used
+
+        prepared gives the crop after the profile's texture preparation, the grey the units were segmented and levelled on
+        """
         if self._card is None or self._card[0] != scan:
             crop, _ = un.card_crop(load_gray(next(self.scans_dir.glob(f"{scan}.*"))))
-            self._card = (scan, un.upright(crop, self.man["scans"][scan]["angle"])[0])
-        return self._card[1]
+            self._card = [scan, un.upright(crop, self.man["scans"][scan]["angle"])[0], None]
+        if not prepared:
+            return self._card[1]
+        if self._card[2] is None:
+            self._card[2] = texture.prepare(self._card[1])
+        return self._card[2]
 
     def reg(self, ch, scan, unit):
         """The registered 4x coverage of one view of a glyph, rendered again from its placement as the session fused it"""
@@ -212,6 +219,7 @@ def export_steps(S, out, p_by_char, asp):
     y0, x0 = int(np.clip(cy - chh // 2, 0, g.shape[0] - chh)), int(np.clip(cx - cw // 2, 0, g.shape[1] - cw))
     raw = g[y0 : y0 + chh, x0 : x0 + cw]
     save_gray(raw, d / "s1_raw.webp")
+    g = S.frame(sp, prepared=True)
     m = 100
     Y0, X0 = max(y0 - m, 0), max(x0 - m, 0)
     win = g[Y0 : y0 + chh + m, X0 : x0 + cw + m]

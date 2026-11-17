@@ -40,9 +40,9 @@ const mid = tp.indexOf(50);
     <p class="kicker">Capture</p>
     <h1>Capture</h1>
     <p class="lede">Every card is scanned twice on a flatbed scanner, and a printed target keeps the scanner honest.</p>
-    <p>Each card goes on the glass at 1200 ppi in greyscale, saved without compression. The scanner’s own straightening is switched off, because it resamples the image and changes the weight of the strokes.</p>
-    <p>Each card is scanned once upright and once turned a quarter turn. That puts the same printed letter on two different pixel grids. Averaging the two copies cuts the noise of the scan by about a third, and the difference between them measures that noise directly. The Noise Lab below shows it.</p>
-    <p>A calibration target printed on paper is scanned both ways too. It reads {fmt(cal.summary.px_per_mm, 2)} pixels per millimetre, which is {fmt(ppi, 0)} ppi, the same in both directions to within {fmt(cal.summary.scan_anisotropy * 100, 2)} %. The two things below are the ones that limit what the project can claim.</p>
+    <p>Each card goes on the glass at 1200 ppi in greyscale, saved without compression. The scanner’s own straightening stays switched off, because it resamples the image and changes the weight of the strokes.</p>
+    <p>Each card is scanned once upright and once turned a quarter turn, which puts the same printed letter on two different pixel grids. Averaging the two copies cuts the noise of the scan by about a third, and the difference between them measures that noise directly. The Noise Lab below shows what that looks like.</p>
+    <p>A calibration target printed on paper is scanned both ways too. It reads {fmt(cal.summary.px_per_mm, 2)} pixels per millimetre, which is {fmt(ppi, 0)} ppi, the same in both directions to within {fmt(cal.summary.scan_anisotropy * 100, 2)} %. The two things below set the limits on what the project can claim.</p>
   </article>
 
   <section class="flow" aria-labelledby="bench">
@@ -50,7 +50,7 @@ const mid = tp.indexOf(50);
     <div class="bench mid">
       <figure class="bench-card">
         <p class="big"><span class="num-lg">{fmt(cal.summary.edge_w1090_um_median, 0)} µm</span> to go from paper to ink</p>
-        <p class="cap">Each dot is one edge of the slanted squares on the target, measured as the width over which it changes from 10 % to 90 % ink. They range from {fmt(Math.min(...w), 0)} to {fmt(Math.max(...w), 0)} µm. One scanner pixel is {fmt(px_um, 0)} µm, so an edge is blurred over about {fmt(cal.summary.edge_w1090_um_median / px_um, 0)} pixels. Stacking reduces noise, but it cannot recover detail finer than this.</p>
+        <p class="cap">Each dot is one edge of the slanted squares on the target, measured as the width over which it changes from 10 % to 90 % ink. They range from {fmt(Math.min(...w), 0)} to {fmt(Math.max(...w), 0)} µm. One scanner pixel is {fmt(px_um, 0)} µm, so an edge is blurred over about {fmt(cal.summary.edge_w1090_um_median / px_um, 0)} pixels. Stacking reduces noise, but it can’t recover detail finer than this.</p>
         <div class="strip" role="img" aria-label={`${w.length} edge widths from ${fmt(Math.min(...w), 0)} to ${fmt(Math.max(...w), 0)} micrometres`}>
           <div class="strip-track">
             {w.map((v, i) => <span class="sdot" style={`left:${wpos(v)}%; bottom:${0.2 + stack[i] * 0.9}rem`}></span>)}
@@ -64,7 +64,7 @@ const mid = tp.indexOf(50);
 
       <figure class="bench-card">
         <p class="big"><span class="num-lg">Not a straight line</span> from white to black</p>
-        <p class="cap">The target has eleven tone steps from no ink to solid black. The scanner compresses the darks: the steps from half black upward all read nearly the same. Turning grey level into ink amount needs this curve. Hover or focus the chart and use the arrow keys.</p>
+        <p class="cap">The target has eleven tone steps from no ink to solid black. The scanner compresses the darks, so the steps from half black upward all read nearly the same. Turning grey level into an amount of ink needs this curve. Hover or focus the chart and use the arrow keys.</p>
         <tone-curve data-percent={JSON.stringify(tp)} data-a={JSON.stringify(cal.tone.a)} data-b={JSON.stringify(cal.tone.b)}>
           <svg class="tone" viewBox={`0 0 ${T.w} ${T.h}`} tabindex="0" role="group" aria-labelledby="tc-t tc-d">
             <title id="tc-t">Tone steps, grey level against percent black</title>
@@ -81,7 +81,7 @@ const mid = tp.indexOf(50);
           </svg>
           <dl class="readout mono" aria-live="polite"><dt>Printed black</dt><dd class="tc-p">{tp[mid]} %</dd><dt>Scan A, solid</dt><dd class="tc-a">{fmt(cal.tone.a[mid], 0)}</dd><dt>Scan B, dashed</dt><dd class="tc-b">{fmt(cal.tone.b[mid], 0)}</dd></dl>
         </tone-curve>
-        <p class="cap">The dotted line is what a linear scanner would read between the white and the black ends. The two scans differ slightly in the mid-greys, so the curve is read per scan session.</p>
+        <p class="cap">The dotted line is what a linear scanner would read between the white and the black ends. The two scans differ slightly in the mid-greys, so the curve is read for each scan session.</p>
       </figure>
     </div>
     <p class="src">The scale from each ruler, every edge width and the tone values are in the tables on the <a href={`${href('/data/')}#calibration`}>data page</a>.</p>
@@ -90,7 +90,7 @@ const mid = tp.indexOf(50);
   <section aria-labelledby="lab">
     <h2 id="lab">Noise Lab</h2>
     <article>
-      <p>Drag the line across one letter to compare its two copies, or switch to the difference. It is the same ink, so where they disagree is scan noise.</p>
+      <p>Drag the line across one letter to compare its two copies, or switch to the difference. It’s the same ink, so anywhere they disagree is scan noise.</p>
     </article>
     <noise-lab data-base={href('/data/')} data-glyphs={JSON.stringify(gl)} data-fit={JSON.stringify(fit)}>
       <div class="lab">
@@ -101,7 +101,7 @@ const mid = tp.indexOf(50);
           </div>
           <p class="cap">Two copies of one printed e from {cardName(first.card)}, scanned at {deg(first.upright_angle)} and {deg(first.turned_angle)}.</p>
         </div>
-        <p class="cap">In the pilot this noise was about the size of the real differences between two printed copies of a letter, which is why each card is scanned twice and many copies are stacked. One scan is off by about {fmt(lead.single_scan_um)} µm at the edge and the mean of a pair by about {fmt(lead.pair_mean_um)} µm. The distribution over all pairs is on the <a href={`${href('/data/')}#noise`}>data page</a>.</p>
+        <p class="cap">This noise is about the size of the real differences between two printed copies of a letter, which is why each card is scanned twice and many copies are stacked. One scan is off by about {fmt(lead.single_scan_um)} µm at the edge and the mean of a pair by about {fmt(lead.pair_mean_um)} µm. The distribution over all pairs is on the <a href={`${href('/data/')}#noise`}>data page</a>.</p>
       </div>
     </noise-lab>
   </section>

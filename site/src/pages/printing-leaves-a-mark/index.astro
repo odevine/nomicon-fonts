@@ -23,7 +23,8 @@ const ink = steps('e').ink_spread_um;
 const sizes = Object.entries(cards()).map(([k, v]) => ({ card: k, scale: v.print_scale })).sort((a, z) => z.scale - a.scale);
 
 // how far each glyph's stack sits from the measuring stick, against one scanner pixel
-const g = glyphs().map((r) => ({ ch: r.char, it: r.style === 'italic', v: r.edge_rms_um })).sort((a, z) => a.v - z.v);
+// only glyphs traced from their own copies, since a glyph blended with the measuring stick is pulled toward it
+const g = glyphs().filter((r) => r.source === 'scanned').map((r) => ({ ch: r.char, it: r.style === 'italic', v: r.edge_rms_um })).sort((a, z) => a.v - z.v);
 const px = 25400 / 1200;
 const near = g[0].v, far = g[g.length - 1].v;
 const mid = [...g].sort((x, y) => x.v - y.v)[Math.floor(g.length / 2)].v;
@@ -33,26 +34,26 @@ const mid = [...g].sort((x, y) => x.v - y.v)[Math.floor(g.length / 2)].v;
     <article>
       <p class="kicker">Printing leaves a mark</p>
       <h1>Printing leaves a mark</h1>
-      <p class="lede">Print one letter a hundred times and you get a hundred slightly different letters. The stack keeps that.</p>
+      <p class="lede">Print one letter a hundred times and you get a hundred slightly different letters. The stack keeps a record of all of them.</p>
     </article>
 
     <section class="flow" aria-labelledby="cards-one-letter">
       <h2 id="cards-one-letter">{capital(countWord(rows.length))} cards, one letter</h2>
-      <p>Every shape below is an <em>e</em> printed on one of {rows.length} cards. They are the same letter of the same typeface, set on the same kind of card stock, and no two are alike.</p>
+      <p>Every shape below is an <em>e</em> printed on one of {rows.length} cards. They’re the same letter of the same typeface, set on the same kind of card stock, and still no two are alike.</p>
       <div class="egrid mid" role="img" aria-label={`Printed e's from ${rows.length} cards, ${PER_CARD} from each, drawn from the scanned data`}>
         {rows.map(([card, paths]) => (
           <div class="erow"><span class="ecard">{cardName(card)}</span>
             <span class="eset">{paths.map((d) => <svg viewBox={vb} aria-hidden="true"><path d={d} fill-rule="evenodd" /></svg>)}</span></div>
         ))}
       </div>
-      <p class="cap">Each outline is the 0.5 ink level of one printed e, after the scan is straightened and registered. The cards are named so you can tell the rows apart, the crops are not shown here.</p>
+      <p class="cap">Each outline is the 0.5 ink level of one printed e, after the scan is straightened and registered. The cards are named so you can tell the rows apart, but the crops themselves aren’t shown here.</p>
     </section>
 
     <section class="flow" aria-labelledby="does">
       <h2 id="does">What printing does</h2>
-      <p>Ink spreads into the paper, so every edge sits a little outside where the design puts it. In the pilot the printed shapes sit about {fmt(ink, 0)} µm outside the design on each edge. That figure is relative, because it depends on how the scan edge is read, so use it to compare and not as a measurement of the ink itself.</p>
-      <p>The paper’s fibres roughen the edge, and the halftone screen breaks each stroke into dots. That is why a single scan looks dotted along its edges, which <a href={href('/cleaning/')}>the cleaning steps</a> show close up. Stacking many copies averages most of that away, and keeps what every copy shares.</p>
-      <p>The letters are not all the same size either. The text is shrunk to fit its box, so the same typeface prints smaller on some cards than on others.</p>
+      <p>Ink spreads into the paper, so every edge sits a little outside where the design puts it. On the current cards the printed shapes sit about {fmt(ink, 0)} µm outside the design on each edge. That figure is relative, though, because it depends on how the scan edge is read, so it’s good for comparing and not as a measurement of the ink itself.</p>
+      <p>The paper’s fibres roughen the edge, and the halftone screen breaks each stroke into dots. That’s why a single scan looks dotted along its edges, which <a href={href('/cleaning/')}>the cleaning steps</a> show close up. Stacking many copies averages most of that away and keeps what every copy shares.</p>
+      <p>The letters aren’t all the same size either. The text is shrunk to fit its box, so the same typeface prints smaller on some cards than on others.</p>
       <div class="sizes mid" role="img" aria-label={`Print size of each card as a share of the font's size: ${sizes.map((s) => `${cardName(s.card)} ${fmt(s.scale, 2)}`).join(', ')}`}>
         {sizes.map((s) => <div class="size-row"><span class="size-name">{cardName(s.card)}</span><span class="size-track"><span class="size-bar" style={`width:${(s.scale / 1.05) * 100}%`}></span></span><span class="size-val">{fmt(s.scale, 2)}</span></div>)}
       </div>
@@ -61,16 +62,15 @@ const mid = [...g].sort((x, y) => x.v - y.v)[Math.floor(g.length / 2)].v;
 
     <section aria-labelledby="close">
       <h2 id="close">How close the stack is to the design</h2>
-      <p>The stacked letters are not the designed font, but they are close. Each letter below is fitted to the font by size and position only, and the dot shows how far the two outlines are apart at the edge, on average. Every letter is closer than one scanner pixel.</p>
-      <p class="stat-line">Across {g.length} letters the average edge distance runs from <strong>{fmt(near)} µm</strong> to <strong>{fmt(far)} µm</strong>, with a middle of <strong>{fmt(mid)} µm</strong>. One scanner pixel is {fmt(px, 0)} µm.</p>
-      <p>The font is a measuring stick here. It is never drawn on this site, only the distances to it.</p>
+      <p>The stacked letters aren’t the designed font, but they’re close. Each stacked letter is compared with the font through one fit of size, aspect, rotation, ink spread and position, shared by every letter of the face, and the distance between the two outlines is averaged along the edge. Every letter is closer than one scanner pixel.</p>
+      <p class="stat-line">Across {g.length} letters traced from their own printed copies, the average edge distance runs from <strong>{fmt(near)} µm</strong> to <strong>{fmt(far)} µm</strong>, with a middle of <strong>{fmt(mid)} µm</strong>. One scanner pixel is {fmt(px, 0)} µm.</p>
+      <p>The font is only a measuring stick here. It’s never drawn on this site, just the distances to it.</p>
     </section>
 
     <section aria-labelledby="unknown">
-      <h2 id="unknown">What we do not know yet</h2>
-      <p>The leftover difference between the stack and the design is small, but it is not zero. It may be a real effect of printing, such as corners and thin ends printing rounder than designed, or it may come from how the design was fitted. We have not tested which.</p>
-      <p>The printed letters also look about two percent narrower than they are tall, compared with a scanner that measures equally in both directions. Whether that comes from the printing or from the way we compare is not established.</p>
-      <p>And the ink spread above is relative. Measuring it absolutely needs a known printed line on the same card stock.</p>
+      <h2 id="unknown">What isn’t known yet</h2>
+      <p>The leftover difference between the stack and the design is small, but it isn’t zero. Most of it looks like a real effect of printing. Drawing the font with the ink spread, edge width and corner rounding measured on each face brings it to a median 4 to 5 µm from a held-out letter’s stack, and rounding does most of that. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> has the detail. What’s still open is whether the rest is printing or the fit.</p>
+      <p>And the ink spread above is relative. Measuring it in absolute terms would need a known printed line on the same card stock.</p>
     </section>
   </div>
 </Page>

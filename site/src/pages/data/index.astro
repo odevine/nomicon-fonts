@@ -2,7 +2,7 @@
 import Page from '../../layouts/Page.astro';
 import { readdirSync } from 'node:fs';
 import { glyphs, glyph, sweepOf, noise, noisePair, cards, calibration, edgeLevels, fileSize, fmt, kerning, meta } from '../../lib/data';
-import { cardName, glyphLabel, capital, countWord } from '../../lib/format';
+import { cardName, glyphLabel, countWord } from '../../lib/format';
 import { href } from '../../lib/site';
 
 const n = noise(), cal = calibration(), lv = edgeLevels();
@@ -25,35 +25,44 @@ const figures = [
 ] as const;
 const w = cal.edge_w1090_um;
 const files = [
-  ['glyphs.json', 'Glyph index: name, instances, cards, nodes, edge RMS, IoU'],
+  ['glyphs.json', 'Glyph index: name, instances, cards, nodes, edge RMS, IoU, and whether the trace leans on the measuring stick'],
   ['glyphs/{name}.json', 'Per glyph: trace, mean contours 0.1 to 0.9, spread grid, up to 64 instance paths, cutaways'],
   ['sweep/{name}.json', 'Edge RMS and noise against the number of stacked instances'],
+  ['built.json', 'Glyphs with no stack of their own, what each is built from and the print look it’s drawn with'],
   ['kerning.json', 'Observed spacing for each adjacent pair, with the designed value'],
+  ['kerning_samples.json', 'Every measured gap behind kerning.json, by scan'],
+  ['metrics.json', 'The measuring stick’s vertical metrics and space width'],
+  ['meta.json', 'The instance counts behind the prior and the low confidence marks'],
   ['noise.json', 'Comparison of views of the same printed glyph scanned at different angles'],
   ['calibration.json', 'Scale, isotropy, edge widths from the calibration scans'],
   ['cards.json', 'Cards, their scans, edge levels and print scale'],
+  ['steps/', 'Crops and figures for the cleaning steps'],
+  ['pixels/', 'One small raw crop and its registered coverage per glyph, for the Stack’s pixel layers'],
+  ['noise/', 'Two views of one printed copy of each glyph, for the noise figures'],
 ];
 const gl = readdirSync('data/glyphs').length;
 const rows = glyphs();
 const docs = rows.map((r) => ({ r, d: glyph(r.name), sw: sweepOf(r.name) }));
 const pairs = Object.entries(kerning()).sort((a, z) => z[1].n - a[1].n);
+const kb = (f: string) => `${Math.round(fileSize(f) / 1024)} KB`;
 const sizes: Record<string, string> = {
   'glyphs.json': `${fileSize('glyphs.json')} B`, 'kerning.json': `${Math.round(fileSize('kerning.json') / 1024)} KB`,
   'noise.json': `${fileSize('noise.json')} B`, 'calibration.json': `${fileSize('calibration.json')} B`, 'cards.json': `${fileSize('cards.json')} B`,
+  'built.json': kb('built.json'), 'kerning_samples.json': kb('kerning_samples.json'), 'metrics.json': `${fileSize('metrics.json')} B`, 'meta.json': `${fileSize('meta.json')} B`,
 };
 ---
 <Page title="Data and method" description="Every data file, how to reproduce it, and the limits.">
   <article class="flow">
     <p class="kicker">Reference</p>
     <h1>Data and method</h1>
-    <p class="lede">Every number on this site is read from a file in <span class="mono">site/data</span>. The files are written by <span class="mono">glyphstack.export_site</span>.</p>
+    <p class="lede">Every number on this site comes from a file in <span class="mono">site/data</span>, and <span class="mono">glyphstack.export_site</span> writes those files.</p>
 
     <ul class="figures wide">
       {figures.map(([big, cap, to]) => (
         <li><span class="big"><a href={to.startsWith('#') ? to : href(to)}>{big}</a></span><span class="cap">{cap}</span></li>
       ))}
     </ul>
-    <p class="proof">These come from one scanner and {Object.keys(cards()).length} cards. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but does not recover finer detail.</p>
+    <p class="proof">These come from one scanner and {Object.keys(cards()).length} cards, each scanned at 0° and 90°. The scans are read with the texture profile, which levels tinted text boxes and averages out a strong halftone screen. The scanner blurs edges over 100 to 125 µm, so stacking reduces noise but doesn’t recover finer detail.</p>
 
     <h2 id="noise">Noise</h2>
     <p>Two views of the same printed glyph, scanned at different angles, differ by an edge RMS of {fmt(n.headline.pair_rms_um)} µm over {n.headline.n_pairs} pairs, with scale and shear tied across a card’s scans. That gives {fmt(n.headline.single_scan_um)} µm single-scan noise and {fmt(n.headline.pair_mean_um)} µm for a pair mean.</p>
@@ -96,7 +105,7 @@ const sizes: Record<string, string> = {
     <h2 id="files">Files</h2>
     <div class="scroll wide" tabindex="0" role="region" aria-label="Data files table">
       <table>
-        <caption>Contents of site/data, {glyphs().length} glyphs, {gl} glyph files</caption>
+        <caption>Contents of site/data, {glyphs().length} glyphs, {gl} glyph files. Files with .italic in the name hold the same for the italic face.</caption>
         <thead><tr><th>File</th><th>Content</th><th class="r">Size</th></tr></thead>
         <tbody>{files.map(([f, d]) => <tr><td class="mono">{f}</td><td>{d}</td><td class="r">{sizes[f] ?? ''}</td></tr>)}</tbody>
       </table>
@@ -111,7 +120,7 @@ const sizes: Record<string, string> = {
     </div>
 
     <h2 id="stacking">Stacking, glyph by glyph</h2>
-    <p>For each glyph, the trace from the first N instances of one fixed random order, and the N-sweep over random subsets.</p>
+    <p>For each glyph, here’s the trace from the first N instances of one fixed random order, and the N-sweep over random subsets.</p>
     {docs.map(({ r, d, sw }) => (
       <details id={`glyph-${r.name}`}>
         <summary>{glyphLabel(r.char, r.style)}, {r.n} instances</summary>
@@ -129,7 +138,7 @@ const sizes: Record<string, string> = {
     ))}
 
     <h2 id="spacing">Observed spacing</h2>
-    <p>Gaps between adjacent letters measured on the cards, in font units (1 fu is about 3.1 µm), against the designed gap with and without its kern value.</p>
+    <p>These are the gaps between adjacent letters as measured on the cards, in font units (1 fu is about 3.1 µm), against the designed gap with and without its kern value.</p>
     <div class="scroll wide" tabindex="0" role="region" aria-label="Observed spacing table">
       <table>
         <caption>{pairs.length} pairs, most measured first</caption>
@@ -139,7 +148,7 @@ const sizes: Record<string, string> = {
     </div>
 
     <h2 id="limits">Limits</h2>
-    <p>One scanner. {capital(countWord(Object.keys(cards()).length))} cards. Optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement. Stack-against-design numbers depend on one fitted outline.</p>
+    <p>Everything here comes from one scanner and {countWord(Object.keys(cards()).length)} cards, with an optical blur of 100 to 125 µm. The ink spread is relative to the pooled edge level, not an absolute physical measurement, and the numbers comparing the stack against the design depend on one fit shared by every letter of a face. A glyph marked (prior) has fewer than {meta().min_instances} instances and is blended with the measuring stick, so its figures lean toward the design.</p>
   </article>
 </Page>
 <style is:global>
