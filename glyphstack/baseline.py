@@ -20,7 +20,7 @@ BLEED = 25
 def make(font, traces, face, family, style, chars, out):
     """Writes one face's synthetic font baseline from the measuring stick and returns its path and how each glyph was made"""
     with tempfile.TemporaryDirectory() as tmp:
-        vf, made = fontbuild.build_face(font, traces, face, family, style, chars, Path(tmp))
+        vf, made = fontbuild.build_face(font, traces, face, family, style, chars, Path(tmp), axes=(fontbuild.BLEED,))
         return fontbuild.static(vf, BLEED, out), made
 
 

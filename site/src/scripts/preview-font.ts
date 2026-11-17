@@ -1,4 +1,4 @@
-// The site's own Bleed axis fonts, which glyphstack.fontbuild --site writes into public/fonts, every caller keeping its normal behaviour if they fail to load
+// The site's own Bleed and optical size axis fonts, which glyphstack.fontbuild --site writes into public/fonts, every caller keeping its normal behaviour if they fail to load
 
 export type Face = 'regular' | 'italic';
 
@@ -7,6 +7,7 @@ export interface Preview {
   chars: Partial<Record<Face, Set<number>>>;
   urls: Partial<Record<Face, string>>;
   bleed: [number, number, number];
+  opsz: [number, number, number] | null;
 }
 
 const FAMILY: Record<Face, string> = { regular: 'Nomicon Rules Regular', italic: 'Nomicon Rules Italic' };
@@ -19,7 +20,7 @@ export function previewFonts(base: string) {
       const r = await fetch(`${base}nomicon-rules.json`);
       if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) return null;
       const info = await r.json();
-      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [100, 100, 100] };
+      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [100, 100, 100], opsz: info.axes?.opsz ?? null };
       for (const [face, file] of Object.entries(info.faces) as [Face, string][]) {
         const url = `${base}${file}`;
         const f = new FontFace(FAMILY[face], `url("${url}")`);
@@ -30,6 +31,7 @@ export function previewFonts(base: string) {
         out.urls[face] = url;
       }
       document.documentElement.style.setProperty('--bled', String(out.bleed[1]));
+      if (out.opsz) document.documentElement.style.setProperty('--opsz', String(out.opsz[1]));
       return out;
     } catch (err) {
       console.warn('preview fonts', err);

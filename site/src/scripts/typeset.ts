@@ -116,13 +116,15 @@ class TypeSetter extends HTMLElement {
   </div>
   <figure class="set-out"><svg class="set-svg" role="img" aria-labelledby="ts-t"><title id="ts-t">Your text set in Nomicon Rules</title></svg></figure>
   <p class="src ts-status" aria-live="polite"></p>
-  ${this.preview ? '<div class="preview-note ts-preview"><p>Bleed sets how strong the print look is, and 100 is what the cards show.</p></div>' : ''}
+  ${this.preview ? `<div class="preview-note ts-preview"><p>Bleed sets how strong the print look is, and 100 is what the cards show.${this.preview.opsz ? ` Optical size scales the look to the size the type is set at, rounder when smaller and sharper when larger. On a page the browser sets it from the font size, and here it follows the size until you move it. ${this.preview.opsz[1]} is the size the cards print at, so set it there to see their look at any size.` : ''}</p></div>` : ''}
   <p class="src ts-spacing"></p>
 </div>`;
     this.svg = this.querySelector('.set-svg')!;
     const note = this.querySelector('.ts-preview');
     if (note && this.preview) {
-      this.querySelector('.setter-controls label[for=ts-size]')!.after(bleedSlider(this.preview, 'ts-bled'));
+      const bleedRow = bleedSlider(this.preview, 'ts-bled');
+      this.querySelector('.setter-controls label[for=ts-size]')!.after(bleedRow);
+      if (this.preview.opsz) bleedRow.after(...this.opszRows(this.preview.opsz));
     }
     const text = this.querySelector<HTMLTextAreaElement>('#ts-text')!;
     const size = this.querySelector<HTMLInputElement>('#ts-size')!;
@@ -134,12 +136,46 @@ class TypeSetter extends HTMLElement {
     this.querySelector('[data-download]')!.addEventListener('click', () => this.download());
   }
 
+  /** An optical size slider and a box that ties it to the size, since SVG text sized in font units gives the browser no size of its own to read */
+  opszRows([lo, def, hi]: [number, number, number]) {
+    const row = document.createElement('label');
+    row.className = 'nrow opsz-row';
+    row.htmlFor = 'ts-opsz';
+    row.innerHTML = `Optical size <input id="ts-opsz" type="range" min="${lo}" max="${hi}" step="1" value="${def}"> <output class="mono ts-oout">${def}</output>`;
+    const tie = document.createElement('label');
+    tie.className = 'opsz-tie';
+    tie.innerHTML = '<input id="ts-opsz-auto" type="checkbox" checked> Follow the size';
+    const input = row.querySelector('input')!, box = tie.querySelector('input')!;
+    input.addEventListener('input', () => { box.checked = false; this.applyOpsz(); });
+    box.addEventListener('change', () => this.applyOpsz());
+    return [row, tie];
+  }
+
+  /** The optical size the set text is drawn at, the size in px clamped to the axis while it follows the size, as a browser sets it */
+  opsz() {
+    const input = this.querySelector<HTMLInputElement>('#ts-opsz');
+    if (!input) return undefined;
+    if (this.querySelector<HTMLInputElement>('#ts-opsz-auto')!.checked) {
+      const px = +this.querySelector<HTMLInputElement>('#ts-size')!.value;
+      input.value = String(Math.min(+input.max, Math.max(+input.min, px)));
+    }
+    return +input.value;
+  }
+
+  applyOpsz() {
+    const v = this.opsz();
+    if (v === undefined) return;
+    this.querySelector('.ts-oout')!.textContent = String(v);
+    this.svg.style.setProperty('--opsz', String(v));
+  }
+
   async render() {
     const text = this.querySelector<HTMLTextAreaElement>('#ts-text')!.value;
     const mode: Mode = 'designed';
     const letters = this.querySelector<HTMLInputElement>('[name=ts-var]:checked')!.value;
     const alt = letters === 'alt';
     const px = +this.querySelector<HTMLInputElement>('#ts-size')!.value;
+    this.applyOpsz();
     await this.ensure(parse(text).flat());
     const m = this.sp.metrics;
     const scale = px / m.upm;
@@ -248,7 +284,7 @@ class TypeSetter extends HTMLElement {
     const faces = Object.entries(this.preview!.urls);
     const css = (await Promise.all(faces.map(async ([face, url]) => `@font-face{font-family:"${this.preview!.family[face as 'regular' | 'italic']}";src:url(${await fontDataUrl(url!)})}`))).join('');
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-    style.textContent = `${css}path{fill:${ink}}text{fill:${ink};font-variation-settings:'BLED' ${bleed()}}.ghost rect{fill:none;stroke:${ink};stroke-opacity:.65;stroke-width:9;stroke-dasharray:26 18}`;
+    style.textContent = `${css}path{fill:${ink}}text{fill:${ink};font-variation-settings:'BLED' ${bleed()}${this.opsz() === undefined ? '' : `,'opsz' ${this.opsz()}`}}.ghost rect{fill:none;stroke:${ink};stroke-opacity:.65;stroke-width:9;stroke-dasharray:26 18}`;
     const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     Object.entries({ x: vb.x, y: vb.y, width: vb.width, height: vb.height, fill: paper }).forEach(([a, v]) => bg.setAttribute(a, String(v)));
     svg.prepend(style, bg);

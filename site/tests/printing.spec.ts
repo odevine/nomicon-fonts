@@ -16,7 +16,10 @@ test('the Bleed figure draws the font and its slider sets the strength', async (
   await expect(slider).toHaveAttribute('min', '25');
   await expect(slider).toHaveAttribute('max', '125');
   await slider.fill('40');
-  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.bf-live')!).fontVariationSettings)).toContain('40');
+  const settings = await page.evaluate(() => getComputedStyle(document.querySelector('.bf-live')!).fontVariationSettings);
+  // the figure's text is sized in font units, so it holds the optical size at the size the cards print at
+  expect(settings).toContain('"BLED" 40');
+  expect(settings).toContain('"opsz" 8');
 });
 
 test('the corner figures and numbers come from corners.json', async ({ page }) => {
