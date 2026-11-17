@@ -22,6 +22,8 @@ outside the strongly screened glyphs' edges. Each card is then stacked on its ow
 sizes do not move each other's stacks, and each instance's edge deviation is reported by its background
 """
 import argparse
+import hashlib
+import inspect
 import json
 import unicodedata
 import os
@@ -264,12 +266,32 @@ def weight_ratio(rights):
 
 
 _FONTS = None
+_FONTS_DIGEST = ""
 
 
 def _init_truth(profile, font_paths):
-    global _FONTS
+    global _FONTS, _FONTS_DIGEST
     target.use(profile)
     _FONTS = {face: font.load_font(p) for face, p in font_paths.items()}
+    _FONTS_DIGEST = fonts_digest(font_paths)
+
+
+def fonts_digest(font_paths):
+    """sha256 of the font files by face"""
+    h = hashlib.sha256()
+    for face, p in sorted(font_paths.items()):
+        h.update(face.encode() + Path(p).read_bytes())
+    return h.hexdigest()
+
+
+def truth_key(r, fonts):
+    """What a scan's truth depends on: the scan file's size and time, its angle, the card's text, box and size, the fonts
+    and the source of the modules that fit it. A truth whose key matches is not fitted again"""
+    st = r["path"].stat()
+    code = hashlib.sha256(b"".join(inspect.getsource(m).encode() for m in (truth, cards, units, font, target, calibration))
+                          + inspect.getsource(upright_frame).encode()).hexdigest()
+    parts = [r["path"].name, st.st_size, st.st_mtime_ns, r["angle"], r["size_mm"], r["box"], r["text"], fonts, code]
+    return hashlib.sha256(json.dumps(parts, ensure_ascii=False, default=list).encode()).hexdigest()
 
 
 def mark(t):
@@ -293,15 +315,20 @@ def load_truth(path):
     return mark(json.loads(Path(path).read_text()))
 
 
-def truth_scan(r, text, out):
-    """Fits one scan's truth and writes its file and overlay, returns a one line summary"""
+def truth_scan(r, text, out, key, cache=None):
+    """Fits one scan's truth and writes its file and overlay, returns a one line summary
+
+    With a cache folder each step of the fit is kept in `<cache>/<scan stem>.pkl` and reused by the next fit of the scan
+    """
     g, frame = upright_frame(r["path"], r["angle"], r["size_mm"])
-    t = truth.fit(g, text, _FONTS, r["box"], frame=frame)
-    t.update(scan=r["path"].name, card=r["card"], name=r["name"], angle=r["angle"], shape=list(g.shape))
+    memo = truth.Memo(Path(cache) / f"{r['path'].stem}.pkl", _FONTS_DIGEST) if cache else None
+    t = truth.fit(g, text, _FONTS, r["box"], frame=frame, memo=memo)
+    t.update(scan=r["path"].name, card=r["card"], name=r["name"], angle=r["angle"], shape=list(g.shape), key=key)
     mark(t)
     (out / f"{r['path'].stem}.json").write_text(json.dumps(t, ensure_ascii=False))
     truth.overlay(g, t, out / f"{r['path'].stem}.png")
-    return f"{r['path'].name}: {len(t['chars'])} characters on {t['lines']} lines at print scale {t['scale']:.3f}, text turned {t['skew_deg']:+.2f} deg"
+    reused = f", {memo.hits} of {memo.hits + memo.misses} steps reused" if memo else ""
+    return f"{r['path'].name}: {len(t['chars'])} characters on {t['lines']} lines at print scale {t['scale']:.3f}, text turned {t['skew_deg']:+.2f} deg{reused}"
 
 
 def cmd_truth(a):
@@ -309,16 +336,20 @@ def cmd_truth(a):
     out = Path(a.out or Path(a.cards).parent / "truth")
     out.mkdir(parents=True, exist_ok=True)
     prof = target.use(a.profile or target.DEFAULT)
+    paths = {"regular": a.font, "italic": a.italic_font}
+    fonts = fonts_digest(paths)
+    cache = None if a.no_cache else Path(a.cache or out / "cache")
     todo = []
     for r in rows:
-        if (out / f"{r['path'].stem}.json").exists() and not a.force:
-            log.info("%s has truth, pass --force to fit it again", r["path"].name)
+        r["key"] = truth_key(r, fonts)
+        path = out / f"{r['path'].stem}.json"
+        if path.exists() and not a.force and json.loads(path.read_text()).get("key") == r["key"]:
+            log.info("%s is unchanged, pass --force to fit it again", r["path"].name)
             continue
         todo.append(r)
-    paths = {"regular": a.font, "italic": a.italic_font}
     prog = Progress("fitting truth", len(todo))
     with pool(a.workers or os.cpu_count() or 1, _init_truth, (prof.path, paths)) as ex:
-        futs = {ex.submit(truth_scan, r, r["text"], out): r for r in todo}
+        futs = {ex.submit(truth_scan, r, r["text"], out, r["key"], cache): r for r in todo}
         for f in as_completed(futs):
             try:
                 announce("%s", f.result())
@@ -495,7 +526,9 @@ def main():
     t.add_argument("--italic-font", required=True, help="the italic face's TrueType font")
     t.add_argument("--profile", help="profile whose template scale settings the fit uses, default rules")
     t.add_argument("-o", "--out", help="truth folder, default truth/ beside the cards file")
-    t.add_argument("--force", action="store_true", help="fit scans that already have truth again")
+    t.add_argument("--force", action="store_true", help="fit every scan again, even one whose text, box, scan, fonts and code are unchanged")
+    t.add_argument("--cache", help="folder keeping each scan's fit steps between runs, default cache/ in the truth folder")
+    t.add_argument("--no-cache", action="store_true", help="fit every step afresh and keep none")
     t.add_argument("--workers", type=int, help="processes fitting scans, one scan each, default one per core")
     c = sub.add_parser("check", help="flag scans whose truth looks off against their card's other scan or against every scan")
     c.add_argument("cards", help="the scan folder's cards file")

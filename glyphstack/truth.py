@@ -13,7 +13,11 @@ still fits poorly is fitted again over a wider range of baselines with each glyp
 take an exponent form, smaller and raised, as a formula's minus signs and exponents are printed. On a line that fits well, a glyph that
 correlates poorly is then moved a little where it correlates well, since the print spaces some glyphs further apart. Every box is turned back into the card crop as a quad
 """
+import hashlib
+import inspect
+import pickle
 import re
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -314,11 +318,11 @@ def fit_line(chars, scores, glyphs, b0, search=8, exponents=False, jitter=JITTER
     return best
 
 
-def refine(found, reach):
+def refine(found, reach, maps):
     """Moves each placed glyph that correlates less than REFINE_NCC on a line that fits well to the best place within reach px across and its jitter rows down or up, where that reaches REFINE_NCC and lands on no neighbour's box
 
     A neighbour that a moved glyph then lands on is searched the same way, as a full stop the line fit tucked into the
-    letter before it
+    letter before it. maps gives a placed glyph's correlation map
     """
     box = lambda f: (f["x"] + f["ink"][0], f["x"] + f["ink"][1], f["y"] + f["ink"][2], f["y"] + f["ink"][3])
 
@@ -330,7 +334,7 @@ def refine(found, reach):
     def move(line, k):
         """Moves glyph k of a line to its best clear place reaching REFINE_NCC, returns whether it moved"""
         f = line[k]
-        R, j = f["R"], max(f["jitter"], JITTER_PX)
+        R, j = maps(f), max(f["jitter"], JITTER_PX)
         y0, x0 = max(f["y"] - j, 0), max(f["x"] - reach, 0)
         win = R[y0 : f["y"] + j + 1, x0 : f["x"] + reach + 1]
         for flat in np.argsort(win, axis=None)[::-1][:50] if win.size else []:
@@ -366,6 +370,127 @@ def placement_ncc(scores, glyphs, ch, face, p, b, small=False, jitter=JITTER_PX)
     x = min(max(p + ox, 0), R.shape[1] - 1)
     rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]]
     return float(R[rows, x].max()) if rows else None
+
+
+def best_row(R, rows, x):
+    """The row among `rows` where a glyph's map at column x correlates best, with that correlation"""
+    k = int(np.argmax(R[list(rows), x]))
+    return rows[k], float(R[rows[k], x])
+
+
+# the functions each step of a fit runs, whose source with the font module's and every constant of this module is
+# hashed into the step's key, so a change to one step's code computes that step again and reuses the others
+STEP_CODE = {"scale": ("estimate_scale",), "line": ("fit_line", "fit_run", "runs"), "ncc": ("placement_ncc",),
+             "place": ("best_row",), "refine": ("refine",)}
+_digests = {}
+
+
+def step_digest(step):
+    if step not in _digests:
+        mod = globals()
+        h = hashlib.sha256(inspect.getsource(fnt).encode())
+        for name in STEP_CODE[step] + ("Glyphs", "Scores", "darkness"):
+            h.update(inspect.getsource(mod[name]).encode())
+        h.update(repr(sorted((k, repr(v)) for k, v in mod.items() if k.isupper())).encode())
+        _digests[step] = h.hexdigest()
+    return _digests[step]
+
+
+class Memo:
+    """The results of each step of one scan's fit, kept in a file between runs so a refit computes only what changed
+
+    A result is keyed by its step, the digest of the step's code and its arguments, and the file holds results for one
+    darkness image and one pair of fonts, so a changed box or scan starts it afresh. Only the results a fit used are
+    saved, which keeps the file from growing over runs. Without a path it remembers results for one fit only
+    """
+
+    def __init__(self, path=None, fonts=""):
+        self.path, self.fonts = (Path(path) if path else None), fonts
+        self.image, self.saved, self.used, self.hits, self.misses = None, {}, {}, 0, 0
+        self.loaded = {}
+        if self.path and self.path.exists():
+            try:
+                self.loaded = pickle.loads(self.path.read_bytes())
+            except Exception:
+                self.loaded = {}
+
+    def bind(self, D):
+        """Ties the memo to the darkness image the fit reads, keeping saved results only when they came from the same one"""
+        self.image = hashlib.sha256(np.ascontiguousarray(D).tobytes() + repr(D.shape).encode()).hexdigest()
+        ok = self.loaded.get("image") == self.image and self.loaded.get("fonts") == self.fonts
+        self.saved = self.loaded.get("steps", {}) if ok else {}
+
+    def __call__(self, step, args, compute):
+        key = (step, step_digest(step), args)
+        if key in self.used:
+            self.hits += 1
+        elif key in self.saved:
+            self.used[key] = self.saved[key]
+            self.hits += 1
+        else:
+            self.used[key] = compute()
+            self.misses += 1
+        return self.used[key]
+
+    def save(self):
+        if self.path is None or self.image is None or (not self.misses and len(self.used) == len(self.saved)):
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_bytes(pickle.dumps(dict(image=self.image, fonts=self.fonts, steps=self.used), pickle.HIGHEST_PROTOCOL))
+        tmp.replace(self.path)
+
+
+class Steps:
+    """The steps of a fit over one darkness image, each kept in a Memo, with the glyphs and their maps at every scale used
+
+    A correlation map is only computed when a step that needs it is not in the memo
+    """
+
+    def __init__(self, D, fonts, memo=None):
+        self.D, self.fonts, self.memo = D, fonts, memo or Memo()
+        self.memo.bind(D)
+        self._glyphs, self._scores = {}, {}
+
+    def glyphs(self, s):
+        s = float(s)
+        if s not in self._glyphs:
+            self._glyphs[s] = Glyphs(self.fonts, s)
+        return self._glyphs[s]
+
+    def scores(self, s):
+        s = float(s)
+        if s not in self._scores:
+            self._scores[s] = Scores(self.D, self.glyphs(s))
+        return self._scores[s]
+
+    def scale(self):
+        return self.memo("scale", (), lambda: estimate_scale(self.D, self.fonts))
+
+    def line(self, chars, s, b0, search=8, exponents=False, jitter=JITTER_PX):
+        chars = tuple(chars)
+        return self.memo("line", (float(s), chars, int(b0), int(search), bool(exponents), int(jitter)),
+                         lambda: fit_line(list(chars), self.scores(s), self.glyphs(s), b0, search, exponents, jitter))
+
+    def ncc(self, s, ch, face, p, b, small=False, jitter=JITTER_PX):
+        return self.memo("ncc", (float(s), ch, face, int(p), int(b), bool(small), int(jitter)),
+                         lambda: placement_ncc(self.scores(s), self.glyphs(s), ch, face, p, b, small, jitter))
+
+    def place(self, s, ch, face, small, x, rows):
+        rows = tuple(int(r) for r in rows)
+        return self.memo("place", (float(s), ch, face, bool(small), int(x), rows), lambda: best_row(self.scores(s)[(ch, face, small)], rows, x))
+
+    def refine(self, found, reach, s):
+        """Runs `refine` over the placed glyphs and moves them where it moved them"""
+        sig = tuple((f["li"], f["ch"], f["face"], bool(f["small"]), int(f["x"]), int(f["y"]), f["ncc"], int(f["jitter"]), tuple(int(v) for v in f["ink"])) for f in found)
+
+        def run():
+            work = [dict(f) for f in found]
+            refine(work, reach, lambda f: self.scores(s)[(f["ch"], f["face"], f["small"])])
+            return [(f["x"], f["y"], f["ncc"]) for f in work]
+
+        for f, (x, y, v) in zip(found, self.memo("refine", (float(s), int(reach), sig), run)):
+            f.update(x=x, y=y, ncc=v)
 
 
 def text_lines(Ds, glyphs):
@@ -446,9 +571,10 @@ def text_lines(Ds, glyphs):
     return out
 
 
-def assign(pars, lines, glyphs, scores):
+def assign(pars, lines, steps, s):
     """Gives each printed line its characters, paragraph by paragraph, by width and then by where the fitted ink ends"""
     out, li = [], 0
+    glyphs = steps.glyphs(s)
     space = glyphs.space()
     for par in pars:
         words = tokens(par)
@@ -464,9 +590,9 @@ def assign(pars, lines, glyphs, scores):
             for k in cands:
                 # spaces stay in the line so the pen advances over them, they have no image to place
                 chars = [c for w in words[start : k + 1] for c in w + [(" ", "regular")]][:-1]
-                score, b, placed, right = fit_line(chars, scores, glyphs, line["base"])
+                score, b, placed, right = steps.line(chars, s, line["base"])
                 n = sum(glyphs(ch, face)["img"] is not None for ch, face in chars)
-                last = [placement_ncc(scores, glyphs, ch, face, p, b, sm) for ch, face, p, sm in placed[-len(words[k]) :]]
+                last = [steps.ncc(s, ch, face, p, b, sm) for ch, face, p, sm in placed[-len(words[k]) :]]
                 last = [v for v in last if v is not None]
                 fits.append((abs(right - line["x1"]), k, chars, score / max(n, 1), np.mean(last) if last else 1.0))
             best = min(fits)
@@ -549,14 +675,15 @@ def estimate_scale(D, fonts, lo=0.62, hi=1.1, step=0.02, chars="eaon"):
     return float(max(np.round(np.arange(lo, hi + 1e-9, step), 3), key=score))
 
 
-def fit(g, text, fonts, box=BOX, scales=None, frame=None):
+def fit(g, text, fonts, box=BOX, scales=None, frame=None, memo=None):
     """Truth for one upright card crop: every placed character with its face, quad and bounds in card crop pixels
 
     fonts is {"regular": font, "italic": font}, and frame the card's full frame in the crop's pixels as `level` takes it.
     box is one box or a list of them in reading order, for a frame that splits the text, such as a Saga's reminder,
     chapter column and flavor. Every box is turned level by the skew of the largest and they are stacked into one image
     with blank rows between, so the text flows from each box's last line to the next box's first and one print scale
-    fits them all. Returns a dict with the scale, the text skew, the bounds of every box and the characters
+    fits them all. memo keeps each step's result between fits of the same scan, see `Memo`. Returns a dict with the
+    scale, the text skew, the bounds of every box and the characters
     """
     boxes = [tuple(box)] if np.ndim(box) == 1 else [tuple(b) for b in box]
     areas = [(y1 - y0) * (x1 - x0) for y0, y1, x0, x1 in (box_bounds(g, b, frame) for b in boxes)]
@@ -572,45 +699,48 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
         D[off : off + d.shape[0], : d.shape[1]] = d
         Ds[off : off + d.shape[0], : d.shape[1]] = ds
     pars = paragraphs(text)
-    s0 = estimate_scale(D, fonts)
-    glyphs = Glyphs(fonts, s0)
+    steps = Steps(D, fonts, memo)
+    s0 = steps.scale()
+    glyphs = steps.glyphs(s0)
     # lines are found box by box, so a frame bar along a box's edge is still told apart from text
     found_lines = [dict(l, base=l["base"] + off) for off, p in zip(offsets, parts) for l in text_lines(p[1], glyphs)]
-    lines = assign(pars, found_lines, glyphs, Scores(D, glyphs))
+    lines = assign(pars, found_lines, steps, s0)
     best = None
     for s in scales or np.round(np.arange(s0 - 0.03, s0 + 0.0301, 0.01), 3):
-        gl = Glyphs(fonts, float(s))
-        sc = Scores(D, gl)
         total, placed = 0.0, []
         for li, line in enumerate(lines):
-            score, b, pl, _ = fit_line(line["chars"], sc, gl, line["base"])
+            score, b, pl, _ = steps.line(line["chars"], s, line["base"])
             total += score
             placed.append((li, b, pl, JITTER_PX))
         if best is None or total > best[0]:
-            best = (total, float(s), placed, gl, sc)
-    total, s, placed, gl, sc = best
-    mean_ncc = lambda b, pl, j: np.mean([v for v in (placement_ncc(sc, gl, ch, face, p, b, sm, j) for ch, face, p, sm in pl) if v is not None] or [1.0])
+            best = (total, float(s), placed)
+    total, s, placed = best
+    gl = steps.glyphs(s)
+    mean_ncc = lambda b, pl, j: np.mean([v for v in (steps.ncc(s, ch, face, p, b, sm, j) for ch, face, p, sm in pl) if v is not None] or [1.0])
     wide = int(WIDE_JITTER_EM * gl.px_em)
     for k, (li, b, pl, j) in enumerate(placed):
         before = mean_ncc(b, pl, j)
         if before < WIDE_NCC:
-            _, wb, wpl, _ = fit_line(lines[li]["chars"], sc, gl, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True, jitter=wide)
+            _, wb, wpl, _ = steps.line(lines[li]["chars"], s, lines[li]["base"], int(WIDE_EM * gl.px_em), exponents=True, jitter=wide)
             if mean_ncc(wb, wpl, wide) > before:
                 placed[k] = (li, wb, wpl, wide)
+    # a map's shape is the darkness image less the glyph, so placements are clipped to it without computing the map
     found = []
     for li, b, pl, jitter in placed:
         for ch, face, p, small in pl:
             t = gl(ch, face, small)
             if t["img"] is None:
                 continue
-            R = sc[(ch, face, small)]
+            h, w = t["img"].shape
+            mh, mw = D.shape[0] - h + 1, D.shape[1] - w + 1
             ox, oy = t["off"]
-            x = min(max(p + ox, 0), R.shape[1] - 1)
-            rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < R.shape[0]] or [min(max(b + oy, 0), R.shape[0] - 1)]
-            ry = rows[int(np.argmax(R[rows, x]))]
+            x = min(max(p + ox, 0), mw - 1)
+            rows = [r for r in range(b + oy - jitter, b + oy + jitter + 1) if 0 <= r < mh] or [min(max(b + oy, 0), mh - 1)]
+            ry, v = steps.place(s, ch, face, small, x, rows)
             ys, xs = np.nonzero(t["img"] > 0.5)
-            found.append(dict(li=li, ch=ch, face=face, small=small, x=x, y=ry, ncc=float(R[ry, x]), ink=(xs.min(), xs.max() + 1, ys.min(), ys.max() + 1), R=R, jitter=jitter))
-    refine(found, int(REFINE_EM * gl.px_em))
+            found.append(dict(li=li, ch=ch, face=face, small=small, x=x, y=ry, ncc=v, ink=(xs.min(), xs.max() + 1, ys.min(), ys.max() + 1), jitter=jitter))
+    steps.refine(found, int(REFINE_EM * gl.px_em), s)
+    steps.memo.save()
     chars = []
     for f in found:
         x0i, x1i, y0i, y1i = f["ink"]

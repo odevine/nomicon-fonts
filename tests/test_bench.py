@@ -215,3 +215,49 @@ def test_a_die_rolls_result_is_not_an_ability_word():
     for line in ("1 or 2 — Draw a card.", "3 — Draw a card.", "10–19 — Draw a card.", "20 — Draw a card."):
         assert set(faces(truth.paragraphs(dict(rules=[line]))[0])) == {"r"}, line
     assert faces(truth.paragraphs(dict(rules=["Descend 4 — Draw a card."]))[0]).startswith("i" * len("Descend 4 — "))
+
+
+def test_memo_reuses_saved_steps_only_for_the_same_image(tmp_path):
+    D = np.random.default_rng(0).random((20, 30)).astype(np.float32)
+    calls = []
+    compute = lambda: calls.append(1) or 42
+    m = truth.Memo(tmp_path / "scan.pkl", "fonts")
+    m.bind(D)
+    assert m("scale", (), compute) == 42 and m("scale", (), compute) == 42 and len(calls) == 1
+    m.save()
+    again = truth.Memo(tmp_path / "scan.pkl", "fonts")
+    again.bind(D)
+    assert again("scale", (), compute) == 42 and len(calls) == 1 and again.misses == 0
+    other = truth.Memo(tmp_path / "scan.pkl", "fonts")
+    other.bind(D + 1)
+    other("scale", (), compute)
+    assert len(calls) == 2
+    fonts = truth.Memo(tmp_path / "scan.pkl", "other fonts")
+    fonts.bind(D)
+    fonts("scale", (), compute)
+    assert len(calls) == 3
+
+
+@needs_fonts
+def test_a_fit_from_its_memo_matches_a_fresh_fit(tmp_path):
+    target.use(target.DEFAULT)
+    fonts = {"regular": font.load_font(str(FONT)), "italic": font.load_font(str(ITALIC))}
+    text = dict(rules=["The quick brown fox jumps."])
+    gl = truth.Glyphs(fonts, 0.88)
+    W = 3000
+    card = np.full((int(1400 / 0.315), W), 210, np.uint8)
+    base, pen = int(truth.BOX[0] * card.shape[0]) + 200, float(int(truth.BOX[2] * W) + 120)
+    for ch, face in truth.paragraphs(text)[0]:
+        t = gl(ch, face)
+        if t["img"] is not None:
+            ox, oy = t["off"]
+            h, w = t["img"].shape
+            sl = (slice(base + oy, base + oy + h), slice(int(pen) + ox, int(pen) + ox + w))
+            card[sl] = np.minimum(card[sl], (210 - 185 * t["img"]).astype(np.uint8))
+        pen += t["adv"]
+    card = cv2.GaussianBlur(card, (0, 0), 1.0)
+    fresh = truth.fit(card, text, fonts, scales=[0.87, 0.88, 0.89])
+    first = truth.Memo(tmp_path / "scan.pkl")
+    assert truth.fit(card, text, fonts, scales=[0.87, 0.88, 0.89], memo=first) == fresh and first.misses > 0
+    second = truth.Memo(tmp_path / "scan.pkl")
+    assert truth.fit(card, text, fonts, scales=[0.87, 0.88, 0.89], memo=second) == fresh and second.misses == 0
