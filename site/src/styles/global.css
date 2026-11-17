@@ -55,7 +55,7 @@ main > *, .flow > * { --w: var(--measure); max-width: var(--w) !important; margi
 main > .mid, .flow > .mid { --w: 46rem; }
 main > .wide, .flow > .wide { --w: var(--container); }
 main > .full, .flow > .full, main > .flow, .flow > .flow { --w: none; }
-type-setter, stack-view, noise-lab, hero-stack { display: block; }
+type-setter, stack-view, hero-stack { display: block; }
 h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1.05; font-weight: 400; margin: 0 0 1rem; letter-spacing: -0.01em; }
 h2 { font-size: 1.6rem; font-weight: 400; margin: 3rem 0 0.75rem; }
 h3 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.5rem; }
@@ -160,7 +160,6 @@ hero-stack { display: block; }
 .why { margin-top: 2rem; }
 .btn { font: inherit; font-family: var(--label); font-style: italic; font-size: 0.95rem; background: var(--fill); color: var(--ink); border: 0; border-radius: 0.9rem; padding: 0.45rem 1.1rem; cursor: pointer; text-decoration: none; display: inline-block; transition: background 0.2s ease-out; }
 .btn:hover { background: var(--fill-hi); color: var(--ink); }
-.picker span.it { font-style: italic; }
 .glyphmap .src { font-family: var(--label); font-style: italic; font-size: 0.75rem; color: var(--muted); }
 .legend-row { display: flex; gap: 1.25rem; flex-wrap: wrap; font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
 .legend-row span::before { content: ''; display: inline-block; width: 1.15rem; height: 1.15rem; margin-right: 0.5rem; vertical-align: -0.25em; border-radius: 0.4rem; background: var(--fill); }

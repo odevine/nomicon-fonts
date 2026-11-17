@@ -10,8 +10,6 @@ export const glyphs = (): GlyphRow[] => read('glyphs.json');
 export const built = (): BuiltRow[] => (existsSync(resolve(root, 'built.json')) ? read('built.json') : []);
 export const glyph = (name: string): GlyphDoc => read(`glyphs/${name}.json`);
 export const sweepOf = (name: string): Sweep => read(`sweep/${name}.json`);
-export const hasPair = (name: string) => existsSync(resolve(root, `noise/${name}.json`));
-export const pairInfo = (name: string): PairInfo => read(`noise/${name}.json`);
 export const noise = (): Noise => read('noise.json');
 export const calibration = (): Calibration => read('calibration.json');
 export const cards = (): Record<string, Card> => read('cards.json');
@@ -51,7 +49,6 @@ export interface Calibration {
   tone_percent_black: number[];
 }
 export interface Hist { bin_um: number; counts: number[]; n: number; over: number; median_um: number; rms_um: number }
-export interface PairInfo { glyph: string; id: string; card: string; upright: string; turned: string; upright_angle: number; turned_angle: number; pair_dev_um: number; median_pair_dev_um: number; w: number; h: number; um_per_grid_px: number }
 export interface Card {
   scans: { scan: string; angle: number; edge_level: number; rot_deg: number }[];
   print_scale: number; units: number;

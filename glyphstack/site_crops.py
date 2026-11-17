@@ -285,29 +285,6 @@ def export_steps(S, out, p_by_char, asp):
     return d
 
 
-def export_pairs(S, out, chars):
-    """The registered upright and turned views of one typical printed glyph per character, for the noise comparison"""
-    d = Path(out) / "noise"
-    d.mkdir(parents=True, exist_ok=True)
-    for ch in chars:
-        rows = [(k, r) for k, r in enumerate(S.instance_rows(ch)) if has_pair(S, r) and r["pair_dev_um"] is not None]
-        if not rows:
-            continue
-        med = float(np.median([r["pair_dev_um"] for _, r in rows]))
-        k, row = min(rows, key=lambda kr: abs(kr[1]["pair_dev_um"] - med))
-        (sp, kp), (sl, kl) = unit_pair(S, row)
-        a, b = S.reg(ch, sp, kp), S.reg(ch, sl, kl)
-        r0, r1, c0, c1 = ink_box(np.maximum(a, b), margin=4 * 6)
-        name = styles.glyph_name(ch)
-        save_ink(a[r0:r1, c0:c1], d / f"{name}_u.webp")
-        save_ink(b[r0:r1, c0:c1], d / f"{name}_t.webp")
-        (d / f"{name}.json").write_text(json.dumps(dict(
-            glyph=styles.char_of(ch), id=styles.instance_id(ch, k), card=row["card"], upright=sp, turned=sl, upright_angle=S.scans[sp]["angle"], turned_angle=S.scans[sl]["angle"], pair_dev_um=round(row["pair_dev_um"], 3), median_pair_dev_um=round(med, 3),
-            w=int(c1 - c0), h=int(r1 - r0), um_per_grid_px=UM_PER_PX / UP,
-        ), separators=(",", ":")))
-    return d
-
-
 def export(session, scans_dir, out, chars=None):
     """Writes steps/ and pixels/ under out, from a session folder and the folder holding its scan PNGs"""
     S = Session(session, scans_dir)
@@ -319,6 +296,4 @@ def export(session, scans_dir, out, chars=None):
         export_steps(S, out, p_by_char, asp)
     with timed("pixel layer crops"):
         export_pixels(S, out, p_by_char, asp, chars)
-    with timed("noise pairs"):
-        export_pairs(S, out, chars)
     log.info("wrote crops and steps to %s", out)
