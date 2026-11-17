@@ -7,6 +7,7 @@ export interface Preview {
   chars: Partial<Record<Face, Set<number>>>;
   urls: Partial<Record<Face, string>>;
   bleed: [number, number, number];
+  weight?: [number, number, number];
 }
 
 const FAMILY: Record<Face, string> = { regular: 'Nomicon Rules Regular', italic: 'Nomicon Rules Italic' };
@@ -19,7 +20,7 @@ export function previewFonts(base: string) {
       const r = await fetch(`${base}nomicon-rules.json`);
       if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) return null;
       const info = await r.json();
-      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [100, 100, 100] };
+      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [100, 100, 100], weight: info.axes?.wght };
       for (const [face, file] of Object.entries(info.faces) as [Face, string][]) {
         const url = `${base}${file}`;
         const f = new FontFace(FAMILY[face], `url("${url}")`);
@@ -57,6 +58,25 @@ export function bleedSlider(p: Preview, id: string, onInput?: (v: number) => voi
   });
   return label;
 }
+
+/** A Weight slider that sets --wght on the page, for fonts built with a Weight axis */
+export function weightSlider(range: [number, number, number], id: string, onInput?: (v: number) => void) {
+  const [lo, def, hi] = range;
+  const label = document.createElement('label');
+  label.className = 'nrow weight-row';
+  label.htmlFor = id;
+  label.innerHTML = `Weight <input id="${id}" type="range" min="${lo}" max="${hi}" step="1" value="${def}"> <output class="mono">${def}</output>`;
+  const input = label.querySelector('input')!, out = label.querySelector('output')!;
+  input.addEventListener('input', () => {
+    out.textContent = input.value;
+    document.documentElement.style.setProperty('--wght', input.value);
+    onInput?.(+input.value);
+  });
+  return label;
+}
+
+/** The current Weight value */
+export const weight = () => +(getComputedStyle(document.documentElement).getPropertyValue('--wght') || 400);
 
 /** The current Bleed value */
 export const bleed = () => +(getComputedStyle(document.documentElement).getPropertyValue('--bled') || 100);

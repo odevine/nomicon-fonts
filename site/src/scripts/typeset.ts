@@ -1,5 +1,5 @@
 import { cellLabel, charOf, faceOf, layout, lineHeight, parse, type Mode, type Spacing } from '../lib/compose';
-import { bleed, bleedSlider, draws, fontDataUrl, previewFonts, type Preview } from './preview-font';
+import { bleed, bleedSlider, draws, fontDataUrl, previewFonts, weight, weightSlider, type Preview } from './preview-font';
 
 interface Inst { id: string; card: string; path: string }
 interface ComposeGlyph { char: string; adv: number; trace: string; instances: Inst[] }
@@ -14,6 +14,8 @@ const SAMPLES: [string, string][] = [
   ['Swiftfoot Boots', '*“There is great wisdom in rushing headlong into combat . . . if you’re prepared.”*'],
   ['Bloodletter', '*—Hœbrus Væm, Ærathi librarian, last words*'],
 ];
+// the slider steps through the sizes a type scale offers rather than every pixel
+const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 192, 224, 256];
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 function shuffled(n: number, seed: number) {
@@ -33,6 +35,8 @@ class TypeSetter extends HTMLElement {
   private preview: Preview | null = null;
   private advances = new Map<string, number>();
   private kerns = new Map<string, number>();
+  private widths = new Map<string, number>();
+  private probe?: HTMLSpanElement;
   private last?: { lay: ReturnType<typeof layout>; scale: number; paths: { d: string; x: number; line: number; ghost: boolean; adv: number; text?: string }[]; w: number; h: number };
 
   async connectedCallback() {
@@ -69,6 +73,24 @@ class TypeSetter extends HTMLElement {
       this.kerns.set(key, Math.round(w(charOf(a) + charOf(b)) - w(charOf(a)) - w(charOf(b))));
     }
     return this.kerns.get(key);
+  }
+
+  /** A cell's advance in the preview font at a weight, in the spacing table's font units, measured on a hidden span since a canvas cannot set an axis */
+  widthAt(cell: string, w: number) {
+    const key = `${w}\u0000${cell}`;
+    if (!this.widths.has(key)) {
+      if (!this.probe) {
+        this.probe = document.createElement('span');
+        this.probe.setAttribute('aria-hidden', 'true');
+        this.probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-size:${this.sp.metrics.upm}px;font-kerning:none`;
+        document.body.append(this.probe);
+      }
+      this.probe.style.fontFamily = `"${this.preview!.family[faceOf(cell)]}"`;
+      this.probe.style.fontVariationSettings = `'wght' ${w}`;
+      this.probe.textContent = charOf(cell);
+      this.widths.set(key, this.probe.getBoundingClientRect().width);
+    }
+    return this.widths.get(key)!;
   }
 
   /** A cell's advance in the preview font, in the spacing table's font units */
@@ -110,7 +132,7 @@ class TypeSetter extends HTMLElement {
       <label hidden><input type="radio" name="ts-var" value="alt"> A different printed letter each time</label>
     </fieldset>
     <fieldset class="axes"><legend>Axes</legend>
-      <label class="nrow" for="ts-size">Size <input id="ts-size" type="range" min="28" max="${this.preview ? 256 : 160}" step="2" value="48"> <output class="mono ts-sout">48 px</output></label>
+      <label class="nrow" for="ts-size">Size <input id="ts-size" type="range" min="0" max="${SIZES.indexOf(this.preview ? 256 : 160)}" step="1" value="${SIZES.indexOf(48)}" aria-valuetext="48 px"> <output class="mono ts-sout">48 px</output></label>
     </fieldset>
     <p class="actions"><button class="btn" type="button" data-again hidden>Pick other letters</button> <button class="btn" type="button" data-download>Download image</button></p>
   </div>
@@ -122,12 +144,19 @@ class TypeSetter extends HTMLElement {
     this.svg = this.querySelector('.set-svg')!;
     const note = this.querySelector('.ts-preview');
     if (note && this.preview) {
-      this.querySelector('.setter-controls label[for=ts-size]')!.after(bleedSlider(this.preview, 'ts-bled'));
+      const bled = bleedSlider(this.preview, 'ts-bled');
+      this.querySelector('.setter-controls label[for=ts-size]')!.after(bled);
+      if (this.preview.weight) bled.after(weightSlider(this.preview.weight, 'ts-wght', () => this.render()));
     }
     const text = this.querySelector<HTMLTextAreaElement>('#ts-text')!;
     const size = this.querySelector<HTMLInputElement>('#ts-size')!;
     text.addEventListener('input', () => this.render());
-    size.addEventListener('input', () => { this.querySelector('.ts-sout')!.textContent = `${size.value} px`; this.render(); });
+    size.addEventListener('input', () => {
+      const t = `${SIZES[+size.value]} px`;
+      this.querySelector('.ts-sout')!.textContent = t;
+      size.setAttribute('aria-valuetext', t);
+      this.render();
+    });
     this.querySelectorAll('[name=ts-var]').forEach((r) => r.addEventListener('change', () => this.render()));
     this.querySelectorAll<HTMLButtonElement>('[data-sample]').forEach((b) => b.addEventListener('click', () => { text.value = b.dataset.sample!; this.render(); }));
     this.querySelector('[data-again]')!.addEventListener('click', () => { this.seed++; this.render(); });
@@ -139,14 +168,17 @@ class TypeSetter extends HTMLElement {
     const mode: Mode = 'designed';
     const letters = this.querySelector<HTMLInputElement>('[name=ts-var]:checked')!.value;
     const alt = letters === 'alt';
-    const px = +this.querySelector<HTMLInputElement>('#ts-size')!.value;
+    const px = SIZES[+this.querySelector<HTMLInputElement>('#ts-size')!.value];
     await this.ensure(parse(text).flat());
     const m = this.sp.metrics;
     const scale = px / m.upm;
     const box = this.querySelector<HTMLElement>('.set-out')!;
     const wPx = Math.max(200, this.svg.clientWidth || box.clientWidth);
+    // away from the default weight each glyph the font draws is wider by what the bold adds to its advance
+    const w = this.preview?.weight ? weight() : 0, w0 = this.preview?.weight?.[1] ?? 0;
+    const sp = w && w !== w0 ? { ...this.sp, glyphs: Object.fromEntries(Object.entries(this.sp.glyphs).map(([c, g]) => [c, this.fontDraws(c) ? { ...g, adv: g.adv + this.widthAt(c, w) - this.widthAt(c, w0) } : g])) } : this.sp;
     const lay = this.preview
-      ? layout(text, this.sp, mode, wPx / scale, (cell) => this.fontAdvance(cell), (a, b) => this.fontKern(a, b))
+      ? layout(text, sp, mode, wPx / scale, (cell) => (w && w !== w0 ? this.widthAt(cell, w) : this.fontAdvance(cell)), (a, b) => this.fontKern(a, b))
       : layout(text, this.sp, mode, wPx / scale);
     const lh = lineHeight(this.sp);
     const wFu = wPx / scale, hFu = Math.max(1, lay.lines.length) * lh;
@@ -248,7 +280,7 @@ class TypeSetter extends HTMLElement {
     const faces = Object.entries(this.preview!.urls);
     const css = (await Promise.all(faces.map(async ([face, url]) => `@font-face{font-family:"${this.preview!.family[face as 'regular' | 'italic']}";src:url(${await fontDataUrl(url!)})}`))).join('');
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-    style.textContent = `${css}path{fill:${ink}}text{fill:${ink};font-variation-settings:'BLED' ${bleed()}}.ghost rect{fill:none;stroke:${ink};stroke-opacity:.65;stroke-width:9;stroke-dasharray:26 18}`;
+    style.textContent = `${css}path{fill:${ink}}text{fill:${ink};font-variation-settings:'BLED' ${bleed()},'wght' ${weight()}}.ghost rect{fill:none;stroke:${ink};stroke-opacity:.65;stroke-width:9;stroke-dasharray:26 18}`;
     const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     Object.entries({ x: vb.x, y: vb.y, width: vb.width, height: vb.height, fill: paper }).forEach(([a, v]) => bg.setAttribute(a, String(v)));
     svg.prepend(style, bg);

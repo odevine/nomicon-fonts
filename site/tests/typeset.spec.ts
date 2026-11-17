@@ -32,13 +32,16 @@ const expectedOrigins = (text: string, mode: 'observed' | 'designed') => {
   }
   return xs;
 };
+// the size slider steps through a type scale, so a size is set by its place in the scale
+const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 192, 224, 256];
+const size = (px: number) => String(SIZES.indexOf(px));
 const origins = (page: import('@playwright/test').Page) => page.$$eval('.set-svg .gl', (els) => els.map((e) => +(e as HTMLElement).dataset.x!));
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/typeset/');
   await page.waitForSelector('.set-svg .gl');
-  await page.locator('#ts-size').fill('40');
+  await page.locator('#ts-size').fill(size(40));
   // let the re-render that the size change starts finish before a test reads the letters
   await page.waitForTimeout(150);
 });
@@ -54,11 +57,14 @@ test('a line is set with the designed kerning', async ({ page }) => {
   await expect(page.locator('[name=ts-mode]')).toHaveCount(0);
 });
 
-test('the size starts at 48 px and stops at 256 px', async ({ page }) => {
+test('the size steps through a type scale from 48 px up to 256 px', async ({ page }) => {
   await page.goto('/typeset/');
-  await expect(page.locator('#ts-size')).toHaveValue('48');
+  await expect(page.locator('#ts-size')).toHaveValue(size(48));
   await expect(page.locator('.ts-sout')).toHaveText('48 px');
-  await expect(page.locator('#ts-size')).toHaveAttribute('max', '256');
+  await expect(page.locator('#ts-size')).toHaveAttribute('max', size(256));
+  await page.locator('#ts-size').fill(size(72));
+  await expect(page.locator('.ts-sout')).toHaveText('72 px');
+  await expect(page.locator('#ts-size')).toHaveAttribute('aria-valuetext', '72 px');
 });
 
 test('every letter is drawn from Nomicon Rules and the letter options are hidden', async ({ page }) => {
@@ -79,7 +85,7 @@ test('a character the font lacks appears as a dashed cell', async ({ page }) => 
 });
 
 test('long text wraps inside the figure', async ({ page }) => {
-  await page.locator('#ts-size').fill('120');
+  await page.locator('#ts-size').fill(size(128));
   await page.locator('#ts-text').fill('learn to read the lines until the line has to turn over and the next one begins');
   const lines = await page.evaluate(() => new Set([...document.querySelectorAll('.set-svg .gl')].map((g) => g.getAttribute('transform')!.split(' ')[1])).size);
   expect(lines).toBeGreaterThan(1);
@@ -121,7 +127,7 @@ test('the set letters are plain, with no hover readout, tooltip or hover colour'
 });
 
 test('a long string with no spaces wraps inside the figure', async ({ page }) => {
-  await page.locator('#ts-size').fill('120');
+  await page.locator('#ts-size').fill(size(128));
   await page.locator('#ts-text').fill('unreadunreadunreadunreadunreadunreadunreadunreadunreadunread');
   await page.waitForTimeout(150);
   const r = await page.evaluate(() => {

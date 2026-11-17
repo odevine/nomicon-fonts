@@ -8,7 +8,7 @@ no stack of its own is its baseline outline with its points moved onto the edge 
 each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
 outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
 The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed. With --weight
-the fonts also have a Weight axis from 400 to a bold at 700, each glyph's regular outline grown with the same points
+the fonts also have a Weight axis from 400 to a semibold at 600, or to the weight given, each glyph's regular outline grown with the same points
 
     python -m glyphstack.fontbuild build/session --baseline build/synthetic_baseline/NomiconRulesBleed25-Regular.ttf \
         --italic-baseline build/synthetic_baseline/NomiconRulesBleed25-Italic.ttf -o build/fonts --site site/public/fonts
@@ -67,6 +67,14 @@ WEIGHT = dict(tag="wght", name="Weight", minimum=400, default=400, maximum=700)
 # how far the bold grows each side in measuring stick units, across and up and down, the measuring stick's bold
 # stems being 30 wider each side than its regular and its horizontal strokes 5
 BOLD = dict(x=30.0, y=5.0)
+WEIGHT_NAMES = {500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold"}
+
+
+def set_top_weight(top):
+    """Puts the Weight axis's top master at top, its outline grown by the measuring stick's bold scaled linearly from 400 to 700"""
+    s = (top - 400) / 300
+    WEIGHT["maximum"] = top
+    BOLD.update(x=30.0 * s, y=5.0 * s)
 # the longest an outer corner's point may move as a multiple of the offset
 MITRE = 2.0
 # how far apart in measuring stick units the points of a filled notch sit
@@ -915,7 +923,7 @@ def build_face(font, traces, face, family, style, chars, out, weight=False):
     italic = face != styles.primary()
     stat = [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)])]
     if weight:
-        stat.append(dict(tag=WEIGHT["tag"], name=WEIGHT["name"], values=[dict(value=400, name="Regular", flags=0x2, linkedValue=700), dict(value=700, name="Bold")]))
+        stat.append(dict(tag=WEIGHT["tag"], name=WEIGHT["name"], values=[dict(value=400, name="Regular", flags=0x2) | (dict(linkedValue=700) if WEIGHT["maximum"] == 700 else {}), dict(value=WEIGHT["maximum"], name=WEIGHT_NAMES.get(WEIGHT["maximum"], str(WEIGHT["maximum"])))]))
     buildStatTable(vf, stat + [dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
     log.log.info("%s %s kerns %d pairs", family, style, add_kerning(vf, font, SCALE / base_bleed(font)[1]))
     path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{','.join(ax['tag'] for ax in axes)}].ttf")
@@ -996,19 +1004,21 @@ def main():
     ap.add_argument("--baseline", required=True, help="the primary face's synthetic font baseline, from glyphstack.baseline")
     ap.add_argument("--italic-baseline", help="the italic face's synthetic font baseline")
     ap.add_argument("--face-baseline", action="append", default=[], metavar="NAME=PATH", help="another face's synthetic font baseline, repeat for each face")
-    ap.add_argument("--weight", action="store_true", help="add a Weight axis from 400 to a bold at 700 grown from the regular")
+    ap.add_argument("--weight", type=int, nargs="?", const=600, help="add a Weight axis from 400 to a top master grown from the regular, 600 when no weight is given")
     log.add_args(ap)
     a = ap.parse_args()
     session, out = Path(a.session), Path(a.out)
     log.start(a, session, "fontbuild")
     prof, traces, chars = load_session(session, a.profile)
     out.mkdir(parents=True, exist_ok=True)
+    if a.weight:
+        set_top_weight(a.weight)
     built = {}
     for face, path in baseline_paths(a, prof).items():
         font = fnt.load_font(path)
         if not base_bleed(font)[0]:
             raise SystemExit(f"{path} is not a synthetic font baseline, make one with glyphstack.baseline")
-        built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out, a.weight)
+        built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out, bool(a.weight))
         report(built[face], made, chars)
     if a.site:
         publish(built, Path(a.site))

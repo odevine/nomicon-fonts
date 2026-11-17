@@ -12,9 +12,8 @@ const faces = [
   ['400-italic', 400, 'italic'],
   ['600-normal', 600, 'normal'],
 ].map(([f, w, s]) => `@font-face{font-family:'Stand-in Serif';src:url('${href(`/fonts/eb-garamond-latin-${f}.woff2`)}') format('woff2');font-weight:${w};font-style:${s};font-display:swap}`).join('')
-  // the site is set in its own face, which has no bold yet, so its 600 is the stand-in's
-  + [['regular', 'normal'], ['italic', 'italic']].map(([f, s]) => `@font-face{font-family:'Nomicon Rules';src:url('${href(`/fonts/nomicon-rules-${f}.woff`)}') format('woff');font-weight:400;font-style:${s};font-display:swap}`).join('')
-  + `@font-face{font-family:'Nomicon Rules';src:url('${href('/fonts/eb-garamond-latin-600-normal.woff2')}') format('woff2');font-weight:600;font-style:normal;font-display:swap}`;
+  // the site is set in its own face, whose Weight axis runs from 400 to a semibold at 600
+  + [['regular', 'normal'], ['italic', 'italic']].map(([f, s]) => `@font-face{font-family:'Nomicon Rules';src:url('${href(`/fonts/nomicon-rules-${f}.woff`)}') format('woff');font-weight:400 600;font-style:${s};font-display:swap}`).join('');
 ---
 <!doctype html>
 <html lang="en">
