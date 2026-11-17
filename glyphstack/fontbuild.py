@@ -31,7 +31,7 @@ from fontTools.pens.basePen import BasePen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import gaussian_filter1d, map_coordinates
 from scipy.spatial import cKDTree
 
 from . import font as fnt
@@ -75,6 +75,13 @@ def set_top_weight(top):
     s = (top - 400) / 300
     WEIGHT["maximum"] = top
     BOLD.update(x=30.0 * s, y=5.0 * s)
+# how far in grid px a traced outline's move from the measuring stick is smoothed along it, which takes out the jitter
+# of reading the move from a different outline while keeping the change at a filled corner
+SMOOTH_PX = 2.0
+# points each curve of a traced outline is moved through
+MOVE_SAMPLES = 32
+# the shortest a moved handle may get as a fraction of its length on the trace
+MIN_HANDLE = 0.1
 # the longest an outer corner's point may move as a multiple of the offset
 MITRE = 2.0
 # how far apart in measuring stick units the points of a filled notch sit
@@ -573,22 +580,93 @@ def advance(contours, joints, pl, F, base):
     return out
 
 
+def outline_move(at1, att, pl, per=64):
+    """The move of the measuring stick outline from master at1 to att at the closest point of at1 to each point, on the grid
+
+    The two masters share their points, so the same curve parameters on both give each place on the outline its move,
+    and a point between two samples takes the move interpolated between them, which changes smoothly along the outline
+    """
+    us = np.linspace(0, 1, per, endpoint=False)
+    a = [np.vstack([bez(pl.grid(P), us) for _, P in c]) for c in at1]
+    move = np.vstack([np.vstack([bez(pl.grid(P), us) for _, P in c]) - p for c, p in zip(att, a)])
+    nxt = np.concatenate([o + (np.arange(len(p)) + 1) % len(p) for o, p in zip(np.cumsum([0] + [len(p) for p in a]), a)])
+    prv = np.empty_like(nxt)
+    prv[nxt] = np.arange(len(nxt))
+    a = np.vstack(a)
+    tree = cKDTree(a)
+
+    def at(x):
+        i = tree.query(x)[1]
+        best, out = np.full(len(x), np.inf), np.zeros((len(x), 2))
+        for j0, j1 in ((prv[i], i), (i, nxt[i])):
+            e = a[j1] - a[j0]
+            f = np.clip(((x - a[j0]) * e).sum(1) / np.maximum((e * e).sum(1), 1e-12), 0, 1)
+            d = np.linalg.norm(a[j0] + f[:, None] * e - x, axis=1)
+            take = d < best
+            best[take], out[take] = d[take], (move[j0] + f[:, None] * (move[j1] - move[j0]))[take]
+        return out
+
+    return at
+
+
+def smooth_along(X, v, sigma):
+    """Values at the points of a closed polyline smoothed by a Gaussian of sigma in its own units of length along it"""
+    L = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(np.vstack([X, X[:1]]), axis=0), axis=1))])
+    if L[-1] < 1e-9:
+        return v
+    s = np.arange(0, L[-1], sigma / 8)
+    even = np.stack([np.interp(s, L, np.append(v[:, k], v[0, k])) for k in range(v.shape[1])], 1)
+    even = gaussian_filter1d(even, 8.0, axis=0, mode="wrap")
+    return np.stack([np.interp(L[:-1], np.append(s, L[-1]), np.append(even[:, k], even[0, k])) for k in range(v.shape[1])], 1)
+
+
+def turn(v, a):
+    """A vector turned by a radians"""
+    return np.array([np.cos(a) * v[0] - np.sin(a) * v[1], np.sin(a) * v[0] + np.cos(a) * v[1]])
+
+
 def displaced(trace, at1, att, pl):
     """A traced outline moved by the change the print look makes to the measuring stick outline, from its master at1 to att
 
-    The two masters share their points, so the same curve parameters on both give each place on the outline its move
+    Each place on the trace takes the move of the closest place on at1, smoothed along the trace by SMOOTH_PX. Each
+    joint moves with it and turns its two handles by the same angle, the turn the moved outline makes there, so a
+    smooth joint stays smooth, and each curve's handle lengths are fitted to its moved points
     """
-    us = np.linspace(0, 1, 17, endpoint=False)
-    a = np.vstack([bez(pl.grid(P), us) for c in at1 for _, P in c])
-    move = np.vstack([bez(pl.grid(P), us) for c in att for _, P in c]) - a
-    tree = cKDTree(a)
-
-    def shift(P):
-        d, i = tree.query(pl.grid(P), k=6)
-        w = 1 / np.maximum(d, 0.5)
-        return pl.font(pl.grid(P) + (move[i] * w[..., None]).sum(1) / w.sum(1)[:, None])
-
-    return [closed([(kind, shift(P)) for kind, P in c]) for c in trace]
+    if att is at1:
+        return trace
+    at = outline_move(at1, att, pl)
+    u = np.linspace(0, 1, MOVE_SAMPLES + 1)
+    b = [(1 - u) ** 3, 3 * (1 - u) ** 2 * u, 3 * (1 - u) * u ** 2, u ** 3]
+    out = []
+    for c in trace:
+        G = [pl.grid(P) for _, P in c]
+        n = len(G)
+        X = np.array([bez(P, u) for P in G])
+        flat = X[:, :-1].reshape(-1, 2)
+        m = smooth_along(flat, at(flat), SMOOTH_PX).reshape(n, MOVE_SAMPLES, 2)
+        O = X + np.concatenate([m, np.roll(m[:, :1], -1, axis=0)], 1)
+        ang = lambda v: np.arctan2(v[..., 1], v[..., 0])
+        # the turn at each joint, the mean of the moved outline's turn just before it and just after it
+        before = np.roll(ang(O[:, -1] - O[:, -2]) - ang(X[:, -1] - X[:, -2]), 1)
+        after = ang(O[:, 1] - O[:, 0]) - ang(X[:, 1] - X[:, 0])
+        wrap = lambda a: (a + np.pi) % (2 * np.pi) - np.pi
+        th = 0.5 * (wrap(before) + wrap(after))
+        cc = []
+        for i, ((kind, _), P) in enumerate(zip(c, G)):
+            A, B = O[i, 0], O[i, -1]
+            if kind == "L":
+                cc.append((kind, pl.font(line(A, B))))
+                continue
+            T0, T3 = turn(heading(P, False), th[i]), turn(heading(P, True), th[(i + 1) % n])
+            l0, l3 = np.linalg.norm(P[1] - P[0]), np.linalg.norm(P[3] - P[2])
+            rhs = O[i, 1:-1] - (b[0] + b[1])[1:-1, None] * A - (b[2] + b[3])[1:-1, None] * B
+            M = np.stack([np.concatenate([b[1][1:-1] * T0[0], b[1][1:-1] * T0[1]]), np.concatenate([-b[2][1:-1] * T3[0], -b[2][1:-1] * T3[1]])], 1)
+            h0, h3 = np.linalg.lstsq(M, np.concatenate([rhs[:, 0], rhs[:, 1]]), rcond=None)[0]
+            # a handle never flips back over its point
+            h0, h3 = max(h0, MIN_HANDLE * l0), max(h3, MIN_HANDLE * l3)
+            cc.append((kind, pl.font(np.array([A, A + h0 * T0, B - h3 * T3, B]))))
+        out.append(closed(cc))
+    return out
 
 
 def dense(P, spacing=0.5):

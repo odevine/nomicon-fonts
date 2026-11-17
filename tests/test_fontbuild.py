@@ -186,3 +186,51 @@ def test_the_bold_grows_stems_across_keeps_its_heights_and_widens_the_advance(tm
     # the V's strokes thicken, so the notch between them rises
     middle = lambda f: (lambda v: v[(np.abs(v[:, 0] - 300 - x) < 40) & (v[:, 1] > 100)][:, 1].min())(points(f, "V"))
     assert middle(bold) > middle(instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 400})) + 20
+
+
+def curved_v():
+    """A trace of the V as cubics, each stroke split at a smooth joint and the acute notch rounded by one curve"""
+    q = lambda *pts: " ".join(f"{x:.1f},{-y:.1f}" for x, y in pts)
+    a, b = np.array([270.0, 260.0]), np.array([330.0, 260.0])
+    straight = lambda p, r: q(p + (r - p) / 3, p + 2 * (r - p) / 3, r)
+    d = "M" + q((0, 700)) + " L" + q((150, 700))
+    for p, r in (((150, 700), (210, 480)), ((210, 480), a)):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " C" + q(a + (15, -55), b + (-15, -55), b)
+    for p, r in ((b, (390, 480)), ((390, 480), (450, 700))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " L" + q((600, 700))
+    for p, r in (((600, 700), (475, 350)), ((475, 350), (350, 0))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " L" + q((250, 0))
+    for p, r in (((250, 0), (125, 350)), ((125, 350), (0, 700))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    return d + "Z"
+
+
+def joint_kinks(font, name, at):
+    """The turn in degrees at the on-curve point of a glyph nearest each of at, from the point before it to the point after it"""
+    glyf = font["glyf"]
+    coords, ends, flags = glyf[name].getCoordinates(glyf)
+    c = np.array(coords, float) / fontbuild.SCALE
+    out = []
+    for q in at:
+        i = int(np.argmin(np.linalg.norm(c - q, axis=1)))
+        a, b = c[i] - c[i - 1], c[(i + 1) % len(c)] - c[i]
+        out.append(abs(np.degrees(np.arctan2(a[0] * b[1] - a[1] * b[0], a @ b))))
+    return out
+
+
+def test_a_traced_glyph_beside_a_filled_notch_keeps_its_smooth_joints_smooth_at_every_bleed(tmp_path):
+    target.use("rules")
+    t = traces() | {"V": dict(trace=curved_v(), adv=620, n=20, p=P)}
+    path, made = fontbuild.build_face(measuring_stick(), t, "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path)
+    assert made["V"] == "traced"
+    # the joints either side of the notch's curve and halfway down each inner side of the strokes
+    joints = [(270, 260), (330, 260), (210, 480), (390, 480)]
+    for b in (25, 50, 125):
+        at = instantiateVariableFont(TTFont(path), {"BLED": b})
+        assert max(joint_kinks(at, "V", joints)) < 1
+    # the notch still opens up at 25, where the measuring stick's notch is sharper
+    v = lambda b: (lambda pts: pts[(np.abs(pts[:, 0] - 300) < 40) & (pts[:, 1] > 100)][:, 1].min())(points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V"))
+    assert v(25) < v(100) - 5
