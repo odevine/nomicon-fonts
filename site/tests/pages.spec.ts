@@ -152,3 +152,19 @@ test('the old address of the Bleed page leads to it', async ({ page }) => {
   await expect(page).toHaveURL(/\/bleed\/$/);
   await expect(page.locator('h1')).toHaveText('Bleed');
 });
+
+test('the favicon is the stacked n, an SVG that follows the theme, an ICO fallback and a home screen PNG', async ({ page, request }) => {
+  await page.goto('/');
+  const icon = await page.locator('link[rel=icon][type="image/svg+xml"]').getAttribute('href');
+  // the home screen icon has no link, since some tab strips pick the largest icon listed, and iOS asks for it by this name anyway
+  await expect(page.locator('link[rel=apple-touch-icon]')).toHaveCount(0);
+  const svg = await (await request.get(icon!)).text();
+  expect(svg).toContain(read('glyphs/n.json').trace);
+  expect(svg).toContain('prefers-color-scheme:dark');
+  const png = await request.get('/apple-touch-icon.png');
+  expect(png.headers()['content-type']).toBe('image/png');
+  const buf = await png.body();
+  expect([buf.readUInt32BE(16), buf.readUInt32BE(20)]).toEqual([180, 180]);
+  const ico = await (await request.get(await page.locator('link[rel=icon][sizes]').getAttribute('href') as string)).body();
+  expect([ico.readUInt16LE(2), ico.readUInt16LE(4), ico[6], ico[22]]).toEqual([1, 2, 32, 16]);
+});
