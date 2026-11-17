@@ -16,7 +16,10 @@ export const cards = (): Record<string, Card> => read('cards.json');
 export const steps = (g = 'e'): Steps => read(`steps/${g}.json`);
 export const meta = (): Meta => read('meta.json');
 export const kerning = (): Record<string, Kern> => read('kerning.json');
+export const corners = (): Record<string, Corners> => read('corners.json');
 
+/** Edge offsets of a face's stacks from the measuring stick at its corners, by kind and angle, from glyphstack.corners */
+export interface Corners { glyphs: number; corners: number; bins: { kind: 'inner' | 'outer'; lo: number; hi: number; n: number; stack_um: number; left_um: number }[] }
 /** Thresholds the pipeline used, the site quotes them rather than repeating the numbers */
 export interface Meta { min_instances: number; confident_instances: number; confident_cards: number }
 export interface GlyphRow {

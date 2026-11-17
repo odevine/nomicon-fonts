@@ -1,6 +1,6 @@
 ---
 import Page from '../../layouts/Page.astro';
-import { glyphs, glyph, meta } from '../../lib/data';
+import { glyphs, glyph, meta, fmt } from '../../lib/data';
 import { bbox, viewBox, PAD, glyphLabel, cardName } from '../../lib/format';
 import { href } from '../../lib/site';
 
@@ -19,7 +19,7 @@ const cloudLevels = ['0.1', '0.3', '0.5', '0.7', '0.9'];
   <p class="kicker">Glyph · {d.unicode}</p>
   <h1>{label}</h1>
   {low && <p class="proof">Low confidence: {d.n} instances from {d.cards.length} cards, fewer than the {m.confident_instances} instances over {m.confident_cards} cards the project aims for.</p>}
-  {d.prior && <p class="proof">Built with the prior: its {d.n} printed {d.n === 1 ? 'instance isn’t' : 'instances aren’t'} enough to trace alone, so the stack is blended with the measuring stick’s outline, drawn the way the print would show it and counted as {d.prior_weight} instances. The blend moved the outline {d.moved_um?.toFixed(1)} µm from the instances alone.</p>}
+  {d.prior && <p class="proof">Built with the prior: its {d.n} printed {d.n === 1 ? 'instance isn’t' : 'instances aren’t'} enough to trace alone, so the stack is blended with the measuring stick’s outline, drawn the way the print would show it and counted as {fmt(d.prior_weight ?? 0)} instances, a weight that shrinks the more copies a glyph has and reaches none at {m.min_instances}. The blend moved the outline {d.moved_um?.toFixed(1)} µm from the instances alone.</p>}
   <p class="src">Traced from {d.n} printed instances on {d.cards.length} cards. <a href={`${href('/data/')}#glyph-${d.name}`}>The numbers for this glyph</a> are on the data page.</p>
   <stack-view class="wide" data-glyph={d.name} data-knee={`${m.min_instances},${m.confident_instances}`} data-base={href('/data/')} data-data-page={href('/data/')}>
     <figure class="specimen">

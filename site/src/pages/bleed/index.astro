@@ -1,26 +1,31 @@
 ---
 import Page from '../../layouts/Page.astro';
-import { glyphs, glyph, cards, steps, fmt } from '../../lib/data';
-import { bbox, viewBox, cardName, glyphLabel, capital, countWord } from '../../lib/format';
+import { glyphs, glyph, corners, fmt } from '../../lib/data';
+import { bbox, viewBox } from '../../lib/format';
 import { href } from '../../lib/site';
 import { compact } from '../../../integrations/served-data.mjs';
 
 const e = glyph('e');
-const eb = bbox(e.trace);
-const vb = viewBox(eb, 30);
-// a few printed e's from each card, taken in the order they were exported
-const PER_CARD = 6;
-const byCard = new Map<string, string[]>();
-for (const it of e.instances) {
-  const list = byCard.get(it.card) ?? [];
-  if (list.length < PER_CARD) list.push(compact(it.path, 0.75));
-  byCard.set(it.card, list);
-}
-const rows = [...byCard.entries()].sort((a, z) => a[0].localeCompare(z[0]));
-const ink = steps('e').ink_spread_um;
+const vb = viewBox(bbox(e.trace), 30);
+const copies = e.instances.map((it) => compact(it.path, 0.75));
+const ecards = new Set(e.instances.map((it) => it.card)).size;
 
-// print size of each card
-const sizes = Object.entries(cards()).map(([k, v]) => ({ card: k, scale: v.print_scale })).sort((a, z) => z.scale - a.scale);
+// the regular face's corners: its fill and rounding by angle, and the close ups of the e
+const rc = corners().regular;
+const bin = (kind: string, lo: number) => rc.bins.find((b) => b.kind === kind && b.lo === lo)!;
+const fill = bin('inner', 0), round = bin('outer', 60);
+const leftItalic = corners().italic.bins.filter((b) => b.kind === 'outer').map((b) => -b.left_um);
+const overFill = bin('inner', 0).left_um;
+// what each close up in corners.json shows, in its order there
+const PLACES = ['Where the tail meets the crossbar', 'The end of the tail'];
+const close = rc.figures.map((f, i) => ({ ...f, place: PLACES[i], trace: glyph(f.glyph).trace, vb: `${f.x - f.half} ${-f.y - f.half} ${2 * f.half} ${2 * f.half}` }));
+const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0]);
+const caption = (f: (typeof close)[number]) => {
+  const kind = f.corners[0].kind, many = f.corners.length > 1;
+  return `${f.place}: ${many ? `${kind} corners of ${list(f.corners.map((c) => `${c.angle}°`))}` : `an ${kind} corner of ${f.corners[0].angle}°`}, ${kind === 'inner' ? 'filled' : 'rounded'} by ${list(f.corners.map((c) => fmt(Math.abs(c.stack_um), 0)))} µm`;
+};
+// the large figure, a letter with sharp inner corners where its strokes cross and serifs at each end
+const SAMPLE = 'x';
 
 // how far each glyph's stack sits from the measuring stick, against one scanner pixel
 // only glyphs traced from their own copies, since a glyph blended with the measuring stick is pulled toward it
@@ -29,63 +34,93 @@ const px = 25400 / 1200;
 const near = g[0].v, far = g[g.length - 1].v;
 const mid = [...g].sort((x, y) => x.v - y.v)[Math.floor(g.length / 2)].v;
 ---
-<Page title="Printing leaves a mark" description={`The same letter printed on ${countWord(rows.length)} cards, and what the stack of copies shows that a design does not.`}>
+<Page title="Bleed" description="What printing does to the corners of a letter, and how the font's Bleed axis draws it.">
   <div class="flow">
     <article>
       <p class="kicker">Printing leaves a mark</p>
-      <h1>Printing leaves a mark</h1>
-      <p class="lede">Print one letter a hundred times and you get a hundred slightly different letters. The stack keeps a record of all of them.</p>
+      <h1>Bleed</h1>
+      <p class="lede">Ink spreads into the card as it prints. It fills in the inside of sharp corners and rounds off the outside ones, and the font’s Bleed axis draws that at any strength.</p>
     </article>
-
-    <section class="flow" aria-labelledby="cards-one-letter">
-      <h2 id="cards-one-letter">{capital(countWord(rows.length))} cards, one letter</h2>
-      <p>Every shape below is an <em>e</em> printed on one of {rows.length} cards. They’re the same letter of the same typeface, set on the same kind of card stock, and still no two are alike.</p>
-      <div class="egrid mid" role="img" aria-label={`Printed e's from ${rows.length} cards, ${PER_CARD} from each, drawn from the scanned data`}>
-        {rows.map(([card, paths]) => (
-          <div class="erow"><span class="ecard">{cardName(card)}</span>
-            <span class="eset">{paths.map((d) => <svg viewBox={vb} aria-hidden="true"><path d={d} fill-rule="evenodd" /></svg>)}</span></div>
-        ))}
-      </div>
-      <p class="cap">Each outline is the 0.5 ink level of one printed e, after the scan is straightened and registered. The cards are named so you can tell the rows apart, but the crops themselves aren’t shown here.</p>
-    </section>
 
     <section class="flow" aria-labelledby="does">
       <h2 id="does">What printing does</h2>
-      <p>Ink spreads into the paper, so every edge sits a little outside where the design puts it. On the current cards the printed shapes sit about {fmt(ink, 0)} µm outside the design on each edge. That figure is relative, though, because it depends on how the scan edge is read, so it’s good for comparing and not as a measurement of the ink itself.</p>
-      <p>The paper’s fibres roughen the edge, and the halftone screen breaks each stroke into dots. That’s why a single scan looks dotted along its edges, which <a href={href('/cleaning/')}>the cleaning steps</a> show close up. Stacking many copies averages most of that away and keeps what every copy shares.</p>
-      <p>The letters aren’t all the same size either. The text is shrunk to fit its box, so the same typeface prints smaller on some cards than on others.</p>
-      <div class="sizes mid" role="img" aria-label={`Print size of each card as a share of the font's size: ${sizes.map((s) => `${cardName(s.card)} ${fmt(s.scale, 2)}`).join(', ')}`}>
-        {sizes.map((s) => <div class="size-row"><span class="size-name">{cardName(s.card)}</span><span class="size-track"><span class="size-bar" style={`width:${(s.scale / 1.05) * 100}%`}></span></span><span class="size-val">{fmt(s.scale, 2)}</span></div>)}
+      <p>Ink spreads a little past every edge the design draws. A straight edge only moves out. At a corner the spread meets itself, so the inside of a sharp corner fills in and the outside of one rounds off, and the sharper the corner, the more it changes.</p>
+      <bleed-figure class="bleed-fig mid" data-base={href('/fonts/')}>
+        <svg viewBox="-10 -480 530 500" role="img" aria-labelledby="bf-t">
+          <title id="bf-t">The letter {SAMPLE} in the font at the Bleed set below</title>
+          <text class="bf-live">{SAMPLE}</text>
+        </svg>
+      </bleed-figure>
+      <p>Bleed 100 is the print look measured on the scans: an ink spread and a rounding, the same for every letter of a face. The font draws the look at a quarter of its strength at 25 and a quarter more than measured at 125. Glyphs that have enough scans keep their own stacked shape at 100.</p>
+    </section>
+
+    <section class="flow" aria-labelledby="corners">
+      <h2 id="corners">At the corners</h2>
+      <p>Measured on the scans, inner corners sharper than 60° fill in by about {fmt(fill.stack_um, 0)} µm, and outer corners of 60 to 90° round off by about {fmt(-round.stack_um, 0)} µm. Both are measured from where the sharp outline would sit once the ink spreads. <a href={href('/data/#corners')}>The data page</a> has every angle for both faces.</p>
+      <p>The close ups below are two places on the <em>e</em>, stacked from {e.n} printed copies. The line is the measuring stick’s designed outline, sharp where the printed letter isn’t.</p>
+      <div class="corner-figs mid">
+        {close.map((f) => (
+          <figure>
+            <svg viewBox={f.vb} role="img" aria-label={`${f.place} of the printed ${f.char}, close up, with the measuring stick's outline`}>
+              <path class="cf-stack" d={f.trace} fill-rule="evenodd" />
+              <path class="cf-stick" d={f.stick} />
+            </svg>
+            <figcaption>{caption(f)}</figcaption>
+          </figure>
+        ))}
       </div>
-      <p class="cap">Printed size of each card's text as a share of the font's design size. Every glyph is put on a common scale before it is stacked.</p>
+      <ul class="bf-layers" aria-label="Layers, front to back">
+        <li><span class="sw sw-25"></span>The measuring stick’s outline</li>
+        <li><span class="sw sw-stack"></span>The letter stacked from its printed copies</li>
+      </ul>
+    </section>
+
+    <section class="flow" aria-labelledby="copies">
+      <h2 id="copies">Every copy is different</h2>
+      <p>The spread isn’t the same on every copy. The paper’s fibres roughen the edge and the halftone screen breaks each stroke into dots, which <a href={href('/cleaning/')}>the cleaning steps</a> show close up. Stacking many copies averages most of that away and keeps what every copy shares. Each card’s text is also shrunk to fit its box, so every glyph is put on a common scale before it is stacked.</p>
+      <figure class="e-over mid">
+        <svg viewBox={vb} role="img" aria-label={`${copies.length} printed e's from ${ecards} cards drawn on top of each other, with the stack's trace`}>
+          {copies.map((d) => <path class="eo-copy" d={d} fill-rule="evenodd" />)}
+          <path class="eo-trace" d={e.trace} fill-rule="evenodd" />
+        </svg>
+        <figcaption>{copies.length} printed <em>e</em>’s from {ecards} cards, each drawn faintly on top of the others, so the edge shows as a band where they disagree. The red line is the trace of the stack.</figcaption>
+      </figure>
     </section>
 
     <section aria-labelledby="close">
       <h2 id="close">How close the stack is to the design</h2>
       <p>The stacked letters aren’t the designed font, but they’re close. Each stacked letter is compared with the font through one fit of size, aspect, rotation, ink spread and position, shared by every letter of the face, and the distance between the two outlines is averaged along the edge. Every letter is closer than one scanner pixel.</p>
       <p class="stat-line">Across {g.length} letters traced from their own printed copies, the average edge distance runs from <strong>{fmt(near)} µm</strong> to <strong>{fmt(far)} µm</strong>, with a middle of <strong>{fmt(mid)} µm</strong>. One scanner pixel is {fmt(px, 0)} µm.</p>
-      <p>The font is only a measuring stick here. It’s never drawn on this site, just the distances to it.</p>
+      <p>The designed font is only a measuring stick here. The site draws its outline only in the small close ups above, and otherwise shows the distances to it and the print look applied to it.</p>
     </section>
 
-    <section aria-labelledby="unknown">
-      <h2 id="unknown">What isn’t known yet</h2>
-      <p>The leftover difference between the stack and the design is small, but it isn’t zero. Most of it looks like a real effect of printing. Drawing the font with the ink spread, edge width and corner rounding measured on each face brings it to a median 4 to 5 µm from a held-out letter’s stack, and rounding does most of that. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> has the detail. What’s still open is whether the rest is printing or the fit.</p>
-      <p>And the ink spread above is relative. Measuring it in absolute terms would need a known printed line on the same card stock.</p>
+    <section aria-labelledby="limits">
+      <h2 id="limits">One rounding can’t fit every corner</h2>
+      <p>Drawing the measuring stick with the ink spread, edge width and rounding measured on each face brings it to a median 4 to 5 µm from a held-out letter’s stack, and rounding does most of that. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> has the detail.</p>
+      <p>The look is one rounding for a whole face, and the corners show where it misses. In the regular face it fills the sharpest inner corners about {fmt(-overFill, 0)} µm too far, and in the italic it leaves outer corners {fmt(Math.min(...leftItalic), 0)} to {fmt(Math.max(...leftItalic), 0)} µm less round than they print.</p>
+      <p>Two things are still open. One is whether the rest of the gap is printing or the fit. The other is how far the ink really spreads, since the spread is measured from how the scan’s edge is read, and pinning it down would need a known printed line on the same card stock.</p>
     </section>
   </div>
 </Page>
 <style is:global>
-  .egrid { margin: 1.5rem 0; display: grid; gap: 0.6rem; }
-  .erow { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1rem; align-items: center; }
-  .ecard { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
-  .eset { display: grid; grid-template-columns: repeat(6, minmax(0, 4.5rem)); gap: 0.5rem; }
-  .eset svg { width: 100%; height: auto; display: block; }
-  .eset path { fill: var(--ink); }
-  .sizes { margin: 1rem 0 0.5rem; display: grid; gap: 0.35rem; }
-  .size-row { display: grid; grid-template-columns: 9rem minmax(0, 1fr) 3rem; gap: 1rem; align-items: center; font-size: 0.85rem; }
-  .size-name { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); }
-  .size-track { height: 0.7rem; border-radius: 99px; overflow: hidden; background: color-mix(in srgb, var(--ink) 8%, var(--paper)); }
-  .size-bar { display: block; height: 100%; background: var(--ink); }
-  .size-val { font-family: var(--label); font-variant-numeric: lining-nums tabular-nums; font-size: 0.85rem; text-align: right; }
-  @media (max-width: 40rem) { .eset { grid-template-columns: repeat(3, 1fr); } .erow, .size-row { grid-template-columns: 6rem minmax(0, 1fr) 2.6rem; gap: 0.6rem; } .erow { grid-template-columns: 6rem minmax(0, 1fr); } }
+  .bleed-fig { display: block; margin: 1.5rem 0; }
+  .bleed-fig svg, .corner-figs svg, .e-over svg { display: block; width: 100%; height: auto; }
+  .bleed-fig text { font-family: 'Nomicon Rules', serif; font-size: 1000px; }
+  .bf-live { fill: var(--ink); font-variation-settings: 'BLED' var(--bled, 100); }
+  .bleed-fig svg { max-width: 24rem; margin: 0 auto; }
+  .bf-layers { list-style: none; padding: 0; margin: 0.75rem 0 0; font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--muted); display: grid; gap: 0.3rem; }
+  .bf-layers .sw { display: inline-block; width: 1.4rem; height: 0.7rem; margin-right: 0.55rem; vertical-align: middle; border-radius: 0.2rem; }
+  .sw-25 { border-top: 2px solid var(--ink); }
+  .sw-stack { background: color-mix(in srgb, var(--ink) 40%, transparent); }
+  .bleed-fig .bleed-row { margin-top: 1rem; }
+  .corner-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.5rem 0 0; }
+  .corner-figs figure { margin: 0; }
+  .corner-figs svg { background: var(--fill); border-radius: var(--r-md); }
+  .cf-stack { fill: color-mix(in srgb, var(--ink) 40%, transparent); }
+  .cf-stick { fill: none; stroke: var(--ink); stroke-width: 0.6; stroke-linejoin: miter; }
+  .e-over { margin: 1.5rem 0; }
+  .e-over svg { max-width: 22rem; margin: 0 auto; }
+  .eo-copy { fill: var(--ink); fill-opacity: 0.045; }
+  .eo-trace { fill: none; stroke: var(--red); stroke-width: 2; }
 </style>
+<script>import '../../scripts/bleed-figure';</script>

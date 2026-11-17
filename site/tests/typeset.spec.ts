@@ -10,7 +10,9 @@ const kern: Record<string, { n: number; mean_dev_nokern: number; kern: number }>
 const metrics = read('metrics.json');
 const unkerned = Object.values(kern).filter((v) => v.kern === 0);
 const avg = unkerned.reduce((s, v) => s + v.n * v.mean_dev_nokern, 0) / unkerned.reduce((s, v) => s + v.n, 0);
-const PHRASE = 'yet a proud sailor can hunt.';
+const PHRASE = 'Whenever you draw a card, Niv-Mizzet, the Firemind deals 1 damage to target creature or player.';
+// a phrase short enough to stay on one line, for the tests that read letter origins along it
+const LINE = 'yet a proud sailor can hunt.';
 
 const offset = (a: string, b: string, mode: 'observed' | 'designed') => {
   if (a === ' ' || b === ' ') return 0;
@@ -41,57 +43,39 @@ test.beforeEach(async ({ page }) => {
   await page.waitForTimeout(150);
 });
 
-test('the default phrase is set with the spacing observed on the cards', async ({ page }) => {
+test('a line is set with the designed kerning', async ({ page }) => {
+  await page.locator('#ts-text').fill(LINE);
+  await expect(page.locator('.set-svg .gl')).toHaveCount(LINE.replace(/ /g, '').length);
   const got = await origins(page);
-  const want = expectedOrigins(PHRASE, 'observed');
+  const want = expectedOrigins(LINE, 'designed');
   expect(got).toHaveLength(want.length);
   got.forEach((x, i) => expect(x).toBeCloseTo(want[i], 1));
-  expect(await page.locator('.ts-spacing').innerText()).toContain('letter pairs were measured');
+  await expect(page.locator('.ts-spacing')).toContainText('the designed kern value for every pair');
+  await expect(page.locator('[name=ts-mode]')).toHaveCount(0);
 });
 
-test('the spacing note counts the measured and the averaged pairs from the data', async ({ page }) => {
-  let measured = 0, averaged = 0;
-  const known = (c: string) => c in adv;
-  for (let i = 1; i < PHRASE.length; i++) {
-    const a = PHRASE[i - 1], b = PHRASE[i];
-    if (!known(a) || !known(b)) continue;
-    const p = kern[a + b];
-    if (p && p.n >= 3) measured++; else averaged++;
-  }
-  await expect(page.locator('.ts-spacing')).toContainText(`${measured} of ${measured + averaged} letter pairs`);
+test('the size starts at 48 px and stops at 256 px', async ({ page }) => {
+  await page.goto('/typeset/');
+  await expect(page.locator('#ts-size')).toHaveValue('48');
+  await expect(page.locator('.ts-sout')).toHaveText('48 px');
+  await expect(page.locator('#ts-size')).toHaveAttribute('max', '256');
 });
 
-test('designed kerning moves the pairs the font kerns', async ({ page }) => {
-  const observed = await origins(page);
-  await page.locator('[name=ts-mode][value=designed]').check();
-  const designed = await origins(page);
-  const want = expectedOrigins(PHRASE, 'designed');
-  designed.forEach((x, i) => expect(x).toBeCloseTo(want[i], 1));
-  expect(designed).not.toEqual(observed);
-});
-
-test('a repeated letter uses a different printed copy each time, and the mean removes the variation', async ({ page }) => {
+test('every letter is drawn from Nomicon Rules and the letter options are hidden', async ({ page }) => {
   await page.locator('#ts-text').fill('eeee');
-  await expect(page.locator('.set-svg .gl')).toHaveCount(4);
-  const ids = await page.$$eval('.set-svg .gl', (els) => els.map((e) => (e as HTMLElement).dataset.id));
-  expect(new Set(ids).size).toBe(4);
-  const d1 = await page.$$eval('.set-svg .gl path', (els) => els.map((e) => e.getAttribute('d')));
-  expect(new Set(d1).size).toBe(4);
-  await page.locator('[data-again]').click();
-  const ids2 = await page.$$eval('.set-svg .gl', (els) => els.map((e) => (e as HTMLElement).dataset.id));
-  expect(ids2).not.toEqual(ids);
-  await page.locator('[name=ts-var][value=mean]').check();
-  const d2 = await page.$$eval('.set-svg .gl path', (els) => els.map((e) => e.getAttribute('d')));
-  expect(new Set(d2).size).toBe(1);
-  expect(d2[0]).toBe(read('glyphs/e.json').trace);
-  await expect(page.locator('[data-again]')).toBeDisabled();
+  await expect(page.locator('.set-svg .gl.font')).toHaveCount(4);
+  await expect(page.locator('.set-svg .gl path')).toHaveCount(0);
+  await expect(page.locator('.setter .toggles')).toBeHidden();
+  await expect(page.locator('[data-again]')).toBeHidden();
+  await expect(page.locator('.ts-status')).toHaveText('Every letter here is from Nomicon Rules.');
 });
 
-test('letters that are not scanned appear as dashed cells that say so', async ({ page }) => {
-  await page.locator('#ts-text').fill('Ka @');
-  await expect(page.locator('.set-svg .ghost')).toHaveCount(2);
-  await expect(page.locator('.set-svg .ghost title').first()).toHaveText('K: not yet scanned');
-  await expect(page.locator('.ts-status')).toContainText('Not yet scanned: K @');
+test('a character the font lacks appears as a dashed cell', async ({ page }) => {
+  await page.locator('#ts-text').fill('Ka @ Ж');
+  await expect(page.locator('.set-svg .font')).toHaveCount(3);
+  await expect(page.locator('.set-svg .ghost')).toHaveCount(1);
+  await expect(page.locator('.set-svg .ghost title')).toHaveText('Ж: not yet scanned');
+  await expect(page.locator('.ts-status')).toContainText('except Ж');
 });
 
 test('long text wraps inside the figure', async ({ page }) => {
@@ -109,27 +93,27 @@ test('the image download works and the page passes axe once mounted', async ({ p
 });
 
 test('the sample buttons and keyboard path work', async ({ page }) => {
-  await page.getByRole('button', { name: 'senseless' }).click();
-  await expect(page.locator('#ts-text')).toHaveValue('senseless');
-  await expect(page.locator('.set-svg .gl')).toHaveCount(9);
+  await page.getByRole('button', { name: 'Uglúk of the White Hand' }).click();
+  await expect(page.locator('#ts-text')).toHaveValue('If that creature was a Goblin or Orc, put two +1/+1 counters on Uglúk instead.');
+  await expect(page.locator('.set-svg .gl, .set-svg .font')).toHaveCount('If that creature was a Goblin or Orc, put two +1/+1 counters on Uglúk instead.'.replace(/ /g, '').length);
   await page.locator('#ts-text').focus();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BUTTON');
 });
 
-test('without scripts the phrase is still set', async ({ browser }) => {
+test('without scripts the phrase is still set in the font', async ({ browser }) => {
   const ctx = await browser.newContext({ javaScriptEnabled: false });
   const page = await ctx.newPage();
   await page.goto('/typeset/');
-  await expect(page.locator('type-setter svg title')).toHaveText(PHRASE);
-  expect(await page.locator('type-setter svg path').count()).toBe(PHRASE.replace(/[ ]/g, '').length);
+  await expect(page.locator('type-setter .set-static')).toHaveText(PHRASE);
+  await expect(page.locator('type-setter .set-static')).toHaveCSS('font-family', /Nomicon Rules/);
   await ctx.close();
 });
 
 test('the set letters are plain, with no hover readout, tooltip or hover colour', async ({ page }) => {
   expect(await page.locator('.ts-hover').count()).toBe(0);
   expect(await page.locator('.set-svg .gl title').count()).toBe(0);
-  const first = page.locator('.set-svg .gl path').first();
+  const first = page.locator('.set-svg .gl text').first();
   await expect(first).toHaveCSS('fill', 'rgb(22, 22, 22)');
   const box = (await first.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -148,25 +132,9 @@ test('a long string with no spaces wraps inside the figure', async ({ page }) =>
   expect(r.ys).toBeGreaterThan(1);
   expect(r.xs.every((x) => x >= 0)).toBe(true);
   const rect = await page.locator('.set-svg').boundingBox();
-  const right = await page.$$eval('.set-svg .gl path', (els) => Math.max(...els.map((e) => e.getBoundingClientRect().right)));
+  const right = await page.$$eval('.set-svg .gl', (els) => Math.max(...els.map((e) => e.getBoundingClientRect().right)));
   expect(right).toBeLessThanOrEqual(rect!.x + rect!.width + 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
-
-test('radio buttons use the site palette', async ({ page }) => {
-  const on = page.locator('[name=ts-mode]:checked');
-  await expect(on).toHaveCSS('border-top-color', 'rgb(214, 35, 42)');
-  expect(await on.evaluate((e) => getComputedStyle(e).appearance)).toBe('none');
-  await expect(page.locator('[name=ts-mode]:not(:checked)').first()).toHaveCSS('border-top-color', 'rgb(22, 22, 22)');
-});
-
-test('each radio button sits on the first line of its label', async ({ page }) => {
-  const rows = await page.$$eval('.toggles label', (ls) => ls.map((l) => {
-    const i = l.querySelector('input')!.getBoundingClientRect(), r = l.getBoundingClientRect();
-    return Math.abs((i.top + i.height / 2) - (r.top + parseFloat(getComputedStyle(l).lineHeight) / 2));
-  }));
-  expect(rows.length).toBe(4);
-  for (const dy of rows) expect(dy).toBeLessThan(1.5);
 });
 
 
@@ -174,8 +142,6 @@ test('each radio button sits on the first line of its label', async ({ page }) =
 const italic: { name: string; char: string; style: string }[] = read('glyphs.json').filter((g: { style: string }) => g.style === 'italic');
 const advIt: Record<string, number> = Object.fromEntries(italic.map((g) => [g.char, read(`glyphs/${g.name}.json`).adv]));
 const kernIt: Record<string, { n: number; mean_dev_nokern: number; kern: number }> = existsSync('data/kerning.italic.json') ? read('kerning.italic.json') : {};
-const unkernedIt = Object.values(kernIt).filter((v) => v.kern === 0);
-const avgIt = unkernedIt.reduce((s, v) => s + v.n * v.mean_dev_nokern, 0) / unkernedIt.reduce((s, v) => s + v.n, 0);
 const both = (a: string, b: string) => a in advIt && b in advIt;
 
 test.describe('italic', () => {
@@ -187,38 +153,50 @@ test.describe('italic', () => {
     await expect(page.locator('.set-svg .gl')).toHaveCount(3);
     expect(await page.$$eval('.set-svg .gl', (els) => els.map((e) => (e as HTMLElement).dataset.ch))).toEqual([`i:${a}`, `i:${b}`, a]);
     await expect(page.locator('.set-svg .ghost')).toHaveCount(0);
-    expect(await page.$$eval('.set-svg .gl', (els) => els.map((e) => (e as HTMLElement).dataset.id!.includes('-it-')))).toEqual([true, true, false]);
   });
 
-  test('italic letters use the italic advances and pairs', async ({ page }) => {
-    test.skip(!both(a, b));
-    await page.locator('#ts-text').fill(`*${a}${b}*`);
+  test('italic letters use the italic advances and designed kerning', async ({ page }) => {
+    const pair = Object.keys(kernIt).find((k) => [...k].length === 2 && both(k[0], k[1]) && kernIt[k].kern !== 0);
+    test.skip(!pair);
+    await page.locator('#ts-text').fill(`*${pair}*`);
     await expect(page.locator('.set-svg .gl')).toHaveCount(2);
-    const p = kernIt[a + b];
-    const off = p && p.n >= 3 ? p.mean_dev_nokern : avgIt;
     const xs = await origins(page);
     expect(xs[0]).toBeCloseTo(0, 1);
-    expect(xs[1]).toBeCloseTo(advIt[a] + off, 1);
+    expect(xs[1]).toBeCloseTo(advIt[pair![0]] + kernIt[pair!].kern, 1);
   });
 
-  test('where the face changes the second letter takes the average offset of its own face', async ({ page }) => {
+  test('where the face changes there is no kern', async ({ page }) => {
     await page.locator('#ts-text').fill(`${a}*${b}*`);
     await expect(page.locator('.set-svg .gl')).toHaveCount(2);
     const xs = await origins(page);
-    expect(xs[1]).toBeCloseTo(adv[a] + avgIt, 1);
+    expect(xs[1]).toBeCloseTo(adv[a], 1);
   });
 
-  test('an italic letter that is not scanned says so', async ({ page }) => {
+  test('an italic letter the scans do not have is drawn from the font', async ({ page }) => {
     await page.locator('#ts-text').fill('*7*');
-    await expect(page.locator('.set-svg .ghost title')).toHaveText('7 (italic): not yet scanned');
-    await expect(page.locator('.ts-status')).toContainText('Not yet scanned: 7 (italic)');
+    await expect(page.locator('.set-svg .font')).toHaveCount(1);
+    expect(await page.locator('.set-svg .font').getAttribute('data-ch')).toBe('i:7');
   });
 
   test('the italic sample button fills the text and the hint explains the asterisks', async ({ page }) => {
     await expect(page.locator('.ts-hint')).toContainText('asterisks');
-    await page.getByRole('button', { name: /read the stars/ }).click();
-    await expect(page.locator('#ts-text')).toHaveValue('learn to *read the stars*');
-    await expect(page.locator('.set-svg .gl')).toHaveCount('learn to read the stars'.replace(/ /g, '').length);
-    expect(await page.$$eval('.set-svg .gl', (els) => els.filter((e) => (e as HTMLElement).dataset.ch!.startsWith('i:')).length)).toBe('readthestars'.length);
+    const text = 'Enforcing absolute quiet with extreme prejudice since 3285 AR.';
+    await page.getByRole('button', { name: 'Automatic Librarian' }).click();
+    await expect(page.locator('#ts-text')).toHaveValue(`*${text}*`);
+    await expect(page.locator('.set-svg .gl, .set-svg .font')).toHaveCount(text.replace(/ /g, '').length);
+    expect(await page.$$eval('.set-svg .gl', (els) => els.every((e) => (e as HTMLElement).dataset.ch!.startsWith('i:')))).toBe(true);
   });
+});
+
+test('the kern of a pair the cards did not measure comes from the font', async ({ page }) => {
+  await page.locator('#ts-text').fill('AV');
+  const second = () => page.$$eval('.set-svg .gl', (gs) => parseFloat(gs[1].getAttribute('transform')!.split(/[( ]/)[1]));
+  const advance = await page.evaluate(() => {
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.font = '1000px "Nomicon Rules Regular"';
+    return ctx.measureText('A').width;
+  });
+  // the kern is measured on a canvas once the font has loaded, so the letters may be set again after the first pass
+  await expect.poll(second).toBeLessThan(advance - 50);
+  await expect(page.locator('.ts-spacing')).toContainText('the designed kern value for every pair');
 });

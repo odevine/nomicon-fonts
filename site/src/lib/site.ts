@@ -1,20 +1,26 @@
 export const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 export const href = (p: string) => `${base}${p}`;
 
+export type Group = 'font' | 'process' | 'site';
+
+// the nav shows the font's pages, then the process in pipeline order, and the site group sits in the footer
+export const groups: [Group, string][] = [['font', 'Font'], ['process', 'Process']];
+
 // pages marked hidden have no content yet: they are left out of the nav, and their folders start with _ so Astro does not build them
-export const pages: { path: string; title: string; milestone: string; blurb: string; hidden?: boolean }[] = [
-  { path: '/cards/', hidden: true, title: 'The cards', milestone: 'M6', blurb: 'Why these cards, and which glyphs each contributes.' },
-  { path: '/capture/', title: 'Capture', milestone: 'M4', blurb: 'The scanner, the calibration target and the noise floor.' },
-  { path: '/cleaning/', title: 'Cleaning', milestone: 'M2', blurb: 'From a scan to one clean glyph, step by step.' },
-  { path: '/stacking/', hidden: true, title: 'Stacking', milestone: 'M1', blurb: 'How many printed copies of a letter become one shape.' },
-  { path: '/tracing/', hidden: true, title: 'Tracing', milestone: 'M1', blurb: 'From a mask to Bézier outlines.' },
-  { path: '/printing-leaves-a-mark/', title: 'Printing leaves a mark', milestone: 'M5', blurb: 'What the stack shows that the design doesn’t.' },
-  { path: '/glyphs/', title: 'Glyphs', milestone: 'M1', blurb: 'The character set, one page per glyph.' },
-  { path: '/typeset/', title: 'Typeset', milestone: 'M3', blurb: 'Set your own text with real printed letters.' },
-  { path: '/notes/', title: 'Notes', milestone: '', blurb: 'Longer write-ups of problems that came up along the way.' },
-  { path: '/log/', hidden: true, title: 'Log', milestone: '', blurb: 'Dated progress entries, newest first.' },
-  { path: '/data/', title: 'Data and method', milestone: '', blurb: 'Every data file, how to reproduce it, and the limits.' },
-  { path: '/about/', title: 'About', milestone: '', blurb: 'Credits and the Fan Content Policy notice.' },
+export const pages: { path: string; title: string; group: Group; milestone: string; blurb: string; hidden?: boolean }[] = [
+  { path: '/glyphs/', title: 'Glyphs', group: 'font', milestone: 'M1', blurb: 'The character set, one page per glyph.' },
+  { path: '/typeset/', title: 'Typeset', group: 'font', milestone: 'M3', blurb: 'Set your own text with real printed letters.' },
+  { path: '/releases/', hidden: true, title: 'Releases', group: 'font', milestone: '', blurb: 'Each release of the font, to download.' },
+  { path: '/cards/', hidden: true, title: 'Cards', group: 'process', milestone: 'M6', blurb: 'Why these cards, and which glyphs each contributes.' },
+  { path: '/capture/', title: 'Capture', group: 'process', milestone: 'M4', blurb: 'The scanner, the calibration target and the noise floor.' },
+  { path: '/cleaning/', title: 'Cleaning', group: 'process', milestone: 'M2', blurb: 'From a scan to one clean glyph, step by step.' },
+  { path: '/stacking/', hidden: true, title: 'Stacking', group: 'process', milestone: 'M1', blurb: 'How many printed copies of a letter become one shape.' },
+  { path: '/tracing/', hidden: true, title: 'Tracing', group: 'process', milestone: 'M1', blurb: 'From a mask to Bézier outlines.' },
+  { path: '/bleed/', title: 'Bleed', group: 'process', milestone: 'M5', blurb: 'What the stack shows that the design doesn’t.' },
+  { path: '/notes/', title: 'Notes', group: 'process', milestone: '', blurb: 'Longer write-ups of problems that came up along the way.' },
+  { path: '/log/', hidden: true, title: 'Log', group: 'process', milestone: '', blurb: 'Dated progress entries, newest first.' },
+  { path: '/data/', title: 'Data', group: 'process', milestone: '', blurb: 'Every data file, how to reproduce it, and the limits.' },
+  { path: '/about/', title: 'About', group: 'site', milestone: '', blurb: 'Credits and the Fan Content Policy notice.' },
 ];
 
 // write-ups listed on the notes page, newest first by date
