@@ -52,6 +52,36 @@ test('data page shows the measured edge width range and the tied noise pair', as
   expect(body).toContain(`${read('noise.json').headline.single_scan_um.toFixed(1)} µm`);
 });
 
+test('the glyph table sorts by each column and returns to the export order', async ({ page }) => {
+  await page.goto('/data/');
+  const table = page.locator('div[aria-label="Glyph statistics table"] table');
+  const col = (i: number) => table.locator('tbody tr').evaluateAll((rows, i) => rows.map((r) => (r as HTMLTableRowElement).cells[i].dataset.v ?? ''), i);
+  const first = await col(0);
+  const instances = table.getByRole('button', { name: 'Instances' });
+  await instances.click();
+  await expect(table.locator('thead th').nth(1)).toHaveAttribute('aria-sort', 'descending');
+  const down = (await col(1)).map(Number);
+  expect(down).toEqual([...down].sort((a, b) => b - a));
+  await instances.click();
+  await expect(table.locator('thead th').nth(1)).toHaveAttribute('aria-sort', 'ascending');
+  const up = (await col(1)).map(Number);
+  expect(up).toEqual([...up].sort((a, b) => a - b));
+  await instances.click();
+  await expect(table.locator('th[aria-sort]')).toHaveCount(0);
+  expect(await col(0)).toEqual(first);
+  // missing figures stay at the bottom whichever way the column runs
+  const rms = table.getByRole('button', { name: /Edge RMS/ });
+  for (const _ of [0, 1]) {
+    await rms.click();
+    const v = await col(4);
+    const blank = v.indexOf('');
+    if (blank >= 0) expect(v.slice(blank).every((x) => x === '')).toBe(true);
+  }
+  await table.getByRole('button', { name: 'Glyph' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(table.locator('thead th').first()).toHaveAttribute('aria-sort', 'ascending');
+});
+
 test('every exported glyph has a page and per-glyph files stay in the repo data', () => {
   const files = readdirSync('data/glyphs').map((f) => f.replace('.json', '')).sort();
   expect(files).toEqual(glyphs.map((g: { name: string }) => g.name).sort());

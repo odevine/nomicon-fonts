@@ -246,3 +246,10 @@ input[type='range']::-moz-range-thumb { width: 1.5rem; height: 1.5rem; border: 0
 .strips .lab { font-family: var(--label); font-style: italic; font-size: 0.9rem; color: var(--red-text); margin: 0 0 0.3rem; }
 .strips figcaption { margin-top: 0; }
 section > .mid.scroll, section > .wide.scroll { margin-block: 1.25rem; }
+
+/* sortable table headings are buttons that look like the heading, with an arrow for the sorted column */
+th button.sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; display: inline-flex; gap: 0.3em; align-items: baseline; }
+th.r button.sort { flex-direction: row-reverse; }
+th button.sort::after { content: '↕'; color: var(--muted); font-size: 0.85em; opacity: 0.6; }
+th[aria-sort='ascending'] button.sort::after { content: '↑'; color: var(--red); opacity: 1; }
+th[aria-sort='descending'] button.sort::after { content: '↓'; color: var(--red); opacity: 1; }
