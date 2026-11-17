@@ -1,13 +1,16 @@
-"""Variable fonts of each face of a session with a Bleed axis, built from its traces and the measuring stick
+"""Variable fonts of each face of a session with a Bleed axis, built from its traces and the synthetic font baseline
 
 Bleed is the strength of the face's print look in percent, the ink spread and rounding measured on its traced
 stacks, which fill in sharp inner corners and round off outer ones. At 100 every glyph is as the session traced or
-built it, at 0 the print look is taken away and at 125 it is a quarter stronger. A glyph with no stack of its own is
-the measuring stick's outline with its points moved onto the edge the print look draws at each strength. A traced
-glyph keeps its trace at 100 and moves by the change the print look makes to its measuring stick outline at the other
-strengths, so every master of a glyph has the same points. Composites stay composites of their parts
+built it, at 25 a quarter of the print look is left and at 125 it is a quarter stronger. The synthetic font baseline,
+which glyphstack.baseline makes, is each face drawn at a Bleed of 25 and is the lowest master as it is. A glyph with
+no stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
+each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
+outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
+The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed
 
-    python -m glyphstack.fontbuild build/session --font REGULAR.ttf --italic-font ITALIC.ttf -o build/fonts
+    python -m glyphstack.fontbuild build/session --baseline build/synthetic_baseline/NomiconRulesBleed25-Regular.ttf \
+        --italic-baseline build/synthetic_baseline/NomiconRulesBleed25-Italic.ttf -o build/fonts --site site/public/fonts
 """
 import argparse
 import json
@@ -20,10 +23,13 @@ from fontTools import varLib
 from fontTools.agl import UV2AGL
 from fontTools.cu2qu import curves_to_quadratic
 from fontTools.designspaceLib import AxisDescriptor, DesignSpaceDocument, InstanceDescriptor, SourceDescriptor
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.otlLib.builder import buildStatTable
 from fontTools.pens.basePen import BasePen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.ttLib import TTFont
+from fontTools.varLib.instancer import instantiateVariableFont
 from scipy.ndimage import map_coordinates
 from scipy.spatial import cKDTree
 
@@ -32,11 +38,11 @@ from . import fontfit, log, styles, target
 from .contours import UM_PER_PX, contours_at, sym_dev
 
 # past a quarter more than measured the look closes more slits than a fixed set of points can follow
-AXIS = dict(tag="BLED", name="Bleed", minimum=0, default=100, maximum=125)
+AXIS = dict(tag="BLED", name="Bleed", minimum=25, default=100, maximum=125)
 # strengths between these interpolate to within about 1 µm of the look drawn at them
-MASTERS = (0, 50, 100, 125)
-# the output's units per em as a multiple of the measuring stick's, since one unit of a 1000 unit em is about 9 µm
-# at the printed size and the print look moves corners by a few of them
+MASTERS = (25, 50, 100, 125)
+# the output's units per em as a multiple of the measuring stick's, since one unit of a 1000 unit em is about 3 µm
+# at the printed size, coarser than the 1 µm the masters are fitted to
 SCALE = 4
 # a joint where the outline turns by more than this many degrees is a corner, which the print look rounds or fills
 CORNER_DEG = 25.0
@@ -88,6 +94,33 @@ class SegmentPen(BasePen):
     _endPath = _closePath
 
 
+class SplinePen(SegmentPen):
+    """A SegmentPen that reads each quadratic spline as the one cubic it was made from, for fonts this module wrote"""
+
+    def qCurveTo(self, *points):
+        if points[-1] is None:
+            return super().qCurveTo(*points)
+        pts = np.array([self.last, *points], float)
+        if len(pts) == 2:
+            return self._lineTo(pts[1])
+        mids = [pts[0]] + [(pts[i] + pts[i + 1]) / 2 for i in range(1, len(pts) - 2)] + [pts[-1]]
+        u = np.linspace(0, 1, 9)[:, None]
+        Q = np.vstack([(1 - u) ** 2 * a + 2 * (1 - u) * u * c + u ** 2 * b for a, c, b in zip(mids[:-1], pts[1:-1], mids[1:])])
+        self.cur.append(("C", cubic_through(Q)))
+        self.last = pts[-1]
+        self._BasePen__currentPoint = tuple(pts[-1])
+
+
+def cubic_through(Q):
+    """The cubic with Q's ends that fits its points best, each taken at its fraction of the length along Q"""
+    L = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(Q, axis=0), axis=1))])
+    u = (L / L[-1])[:, None]
+    b1, b2 = 3 * (1 - u) ** 2 * u, 3 * (1 - u) * u ** 2
+    rest = Q - (1 - u) ** 3 * Q[0] - u ** 3 * Q[-1]
+    inner = np.linalg.lstsq(np.hstack([b1, b2]), rest, rcond=None)[0]
+    return np.array([Q[0], inner[0], inner[1], Q[-1]])
+
+
 def line(a, b):
     return np.array([a, a + (b - a) / 3, a + 2 * (b - a) / 3, b], float)
 
@@ -98,13 +131,15 @@ def closed(c):
     return c
 
 
-def design(font, ch, name=None):
-    """The measuring stick's outline of a character, or of the glyph so named, a dotless letter it does not draw being its dotted letter less the dot"""
+def design(font, ch, name=None, k=1, pen=SegmentPen):
+    """The outline of a character in font units divided by k, or of the glyph so named, a dotless letter the font does not draw being its dotted letter less the dot"""
     stem = styles.STEMS.get(ch) if name is None and ord(ch) not in font.getBestCmap() else None
     name = name or font.getBestCmap()[ord(stem or ch)]
-    pen = SegmentPen(font.getGlyphSet())
-    font.getGlyphSet()[name].draw(pen)
-    cs = pen.contours
+    gs = font.getGlyphSet()
+    name = name if name in gs or name + ".part" not in gs else name + ".part"
+    pen = pen(gs)
+    gs[name].draw(pen)
+    cs = [[(kind, P / k) for kind, P in c] for c in pen.contours]
     if stem:
         cs = [c for c in cs if c is not max(cs, key=lambda c: min(P[:, 1].min() for _, P in c))]
     return [merge_tiny(c) for c in cs]
@@ -229,13 +264,13 @@ def refine(c, split_fu):
     return closed(out), joint
 
 
-def corner_reach(pl, look, t):
+def corner_reach(pl, look, t, t0=0.0):
     """How far along a segment from its corner the print look at strength t does more than spread the ink, in font units, times 1.3
 
     Splitting there leaves the whole fill or rounding of the corner to the pieces beside it, however acute the corner
     """
-    F = pl.field(t, look)
-    plain = -t * look["d"]
+    F = pl.field(t, look, t0)
+    plain = -(t - t0) * look["d"]
     least = look["r"] / pl.M[0, 0]
 
     def reach(P, end):
@@ -274,9 +309,12 @@ class Placed:
     def font(self, q):
         return ((np.asarray(q, float) - self.T) @ np.linalg.inv(self.M).T) * [1, -1]
 
-    def field(self, t, look):
-        """The print look's edge at strength t is where this is 0, negative in the ink"""
-        return fontfit.blur(self.sd, t * look["r"]) - t * look["d"]
+    def field(self, t, look, t0=0.0):
+        """The print look's edge at strength t is where this is 0, negative in the ink, for an outline that already carries strength t0
+
+        Blurs compose in quadrature, so the outline drawn at t0 takes the rest of the blur and of the ink spread
+        """
+        return fontfit.blur(self.sd, np.sqrt(t ** 2 - t0 ** 2) * look["r"]) - (t - t0) * look["d"]
 
     def outward(self, x, n, base=None):
         """Normals flipped to point out of the ink of base, the outline's own distance field unless given"""
@@ -455,19 +493,19 @@ def settle(J2, ok, g, edge):
     return J2
 
 
-def standins(contours, joints, pl, look, ts, step=0.25):
+def standins(contours, joints, pl, look, ts, step=0.25, t0=0.0):
     """Refined measuring stick outlines with their points moved onto the print look's edge at each strength of ts, in font units, and the strength they stop at
 
 
-    The strength rises in steps from 0, each moving the last step's points a little, so a point is never sent across
+    The strength rises in steps from t0, the strength the outline already carries, each moving the last step's points a little, so a point is never sent across
     another part of the outline. Each joint moves along its normal, or a corner along its bisector, to the edge, and
     each segment is then fitted to the stretch of edge between its two joints, which keeps the points in order where a
     filled corner swallows them. A step that lands more than MAX_MISFIT from the edge is not taken, and the outline
     keeps the last strength it followed, which is returned, None when it followed every step
     """
-    out, cur, base, held = {0.0: contours}, contours, pl.sd, None
-    for t in np.arange(step, max(ts) + step / 2, step):
-        F = pl.field(t, look)
+    out, cur, base, held = {round(t0, 6): contours}, contours, pl.sd, None
+    for t in np.arange(t0 + step, max(ts) + step / 2, step):
+        F = pl.field(t, look, t0)
         if held is None:
             nxt = advance(cur, joints, pl, F, base)
             if (misfit_um(nxt, pl, F) or 0) > MAX_MISFIT:
@@ -587,14 +625,28 @@ def char_name(ch):
     return styles.NAMES.get(ch) or UV2AGL.get(ord(ch), f"uni{ord(ch):04X}")
 
 
+def base_bleed(font):
+    """The Bleed a source font was saved at and its units per measuring stick unit, 0 and 1 for the measuring stick itself"""
+    family = font["name"].getDebugName(1) if "name" in font else None
+    m = re.search(r"Bleed (\d+(?:\.\d+)?)$", family or "")
+    return (float(m.group(1)) / 100, SCALE) if m else (0.0, 1)
+
+
 def face_glyphs(font, traces, face, chars):
-    """{glyph name: [glyph of each master]}, the cmap and the advances of one face, with a summary of how each glyph was made"""
+    """{glyph name: [glyph of each master]}, the cmap and the advances of one face, with a summary of how each glyph was made
+
+    The source is the measuring stick or a static font this module saved at a Bleed of its own, whose outlines already
+    carry that much of the print look, so each glyph's masters start from it and take only the rest
+    """
+    t0, k = base_bleed(font)
     looks = [e["look"] for k, e in traces.items() if styles.style_of(k) == face and e.get("built") == "outline"]
     if not looks:
         raise SystemExit(f"the {face} face has no glyph built with its print look in traces.json")
     look = looks[0]
     shared = next(e["p"] for k, e in traces.items() if styles.style_of(k) == face and "p" in e)
     ts = [m / 100 for m in MASTERS]
+    if t0 > min(ts):
+        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS[0]}")
     want, cmap = {}, {}
     taken = {char_name(ch) for ch in chars}
 
@@ -618,7 +670,7 @@ def face_glyphs(font, traces, face, chars):
         e = traces.get(styles.key(face, ch)) if ch else None
         if e is None and ch and ord(ch) in font.getBestCmap() and not font["glyf"][font.getBestCmap()[ord(ch)]].numberOfContours:
             glyphs[gname] = [TTGlyphPen(None).glyph()] * len(ts)
-            adv[gname], made[gname] = font["hmtx"][font.getBestCmap()[ord(ch)]][0], "empty"
+            adv[gname], made[gname] = font["hmtx"][font.getBestCmap()[ord(ch)]][0] / k, "empty"
             continue
         if e and e.get("parts"):
             parts = [(need(p["char"], p["glyph"]), p["offset"]) for p in e["parts"]]
@@ -626,14 +678,18 @@ def face_glyphs(font, traces, face, chars):
             glyphs[gname] = [composite(parts)] * len(ts)
             adv[gname], made[gname] = e["adv"], e["built"]
             continue
-        contours = design(font, ch or "", None if ch else name)
+        contours = design(font, ch or "", None if ch else name, k, SplinePen if t0 else SegmentPen)
         if not contours:
             continue
         contours = [merge_tiny(c, tip_fu=TIP_PX / shared[0]) for c in contours]
         pl = Placed(contours, shared)
-        ref = [refine(c, corner_reach(pl, look, ts[-1])) for c in contours]
-        rc, joints = [r[0] for r in ref], [j for r in ref for j in r[1]]
-        masters, held = standins(rc, joints, pl, look, ts)
+        if t0:
+            # a saved font's outlines were refined when it was built
+            rc, joints = contours, [j for c in contours for j in corners(c)]
+        else:
+            ref = [refine(c, corner_reach(pl, look, ts[-1])) for c in contours]
+            rc, joints = [r[0] for r in ref], [j for r in ref for j in r[1]]
+        masters, held = standins(rc, joints, pl, look, ts, t0=t0)
         made[gname] = "outline"
         if e and not e.get("built"):
             trace = parse_trace(e["trace"])
@@ -642,13 +698,14 @@ def face_glyphs(font, traces, face, chars):
         if held is not None:
                 log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
         glyphs[gname] = quadratic(masters)
-        adv[gname] = e["adv"] if e else font["hmtx"][name or font.getBestCmap()[ord(ch)]][0]
+        adv[gname] = e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k
     return glyphs, cmap, adv, made
 
 
 def master_font(font, face, glyphs, cmap, adv, i, family, style):
     order = [".notdef"] + sorted(glyphs)
-    fb = FontBuilder(font["head"].unitsPerEm * SCALE, isTTF=True)
+    t0, k = base_bleed(font)
+    fb = FontBuilder(round(font["head"].unitsPerEm * SCALE / k), isTTF=True)
     fb.setupGlyphOrder(order)
     fb.setupCharacterMap(cmap)
     fb.setupGlyf({".notdef": TTGlyphPen(None).glyph()} | {n: g[i] for n, g in glyphs.items()})
@@ -657,18 +714,60 @@ def master_font(font, face, glyphs, cmap, adv, i, family, style):
     for n in order:
         g = glyf[n]
         g.recalcBounds(glyf)
-        metrics[n] = (round(adv.get(n, font["hmtx"][".notdef"][0]) * SCALE), getattr(g, "xMin", 0))
+        metrics[n] = (round(adv.get(n, font["hmtx"][".notdef"][0] / k) * SCALE), getattr(g, "xMin", 0))
     fb.setupHorizontalMetrics(metrics)
     os2, hhea = font["OS/2"], font["hhea"]
-    fb.setupHorizontalHeader(ascent=hhea.ascent * SCALE, descent=hhea.descent * SCALE, lineGap=hhea.lineGap * SCALE)
+    m = lambda v: round(v * SCALE / k)
+    fb.setupHorizontalHeader(ascent=m(hhea.ascent), descent=m(hhea.descent), lineGap=m(hhea.lineGap))
     italic = face != styles.primary()
     fb.setupNameTable(dict(familyName=family, styleName=style, version="Version 0.100", psName=f"{family.replace(' ', '')}-{style}"))
-    fb.setupOS2(version=4, sTypoAscender=os2.sTypoAscender * SCALE, sTypoDescender=os2.sTypoDescender * SCALE, sTypoLineGap=os2.sTypoLineGap * SCALE,
-                usWinAscent=os2.usWinAscent * SCALE, usWinDescent=os2.usWinDescent * SCALE, sxHeight=os2.sxHeight * SCALE,
-                sCapHeight=os2.sCapHeight * SCALE, fsSelection=(1 << 0 if italic else 1 << 6) | (1 << 7), achVendID="NONE")
+    fb.setupOS2(version=4, sTypoAscender=m(os2.sTypoAscender), sTypoDescender=m(os2.sTypoDescender), sTypoLineGap=m(os2.sTypoLineGap),
+                usWinAscent=m(os2.usWinAscent), usWinDescent=m(os2.usWinDescent), sxHeight=m(os2.sxHeight),
+                sCapHeight=m(os2.sCapHeight), fsSelection=(1 << 0 if italic else 1 << 6) | (1 << 7), achVendID="NONE")
     fb.setupPost(italicAngle=font["post"].italicAngle)
     fb.font["head"].macStyle = 2 if italic else 0
     return fb.font
+
+
+def kern_pairs(font):
+    """{(first glyph, second glyph): x advance adjustment} of a font's kern feature, the first subtable to kern a pair winning as it does in shaping"""
+    out = {}
+    if "GPOS" not in font:
+        return out
+    gpos = font["GPOS"].table
+    lookups = sorted({i for fr in gpos.FeatureList.FeatureRecord if fr.FeatureTag == "kern" for i in fr.Feature.LookupListIndex})
+    x = lambda v: getattr(v, "XAdvance", 0) or 0 if v else 0
+    for li in lookups:
+        for st in gpos.LookupList.Lookup[li].SubTable:
+            st = getattr(st, "ExtSubTable", None) or st
+            if st.Format == 1:
+                for a, ps in zip(st.Coverage.glyphs, st.PairSet):
+                    for r in ps.PairValueRecord:
+                        out.setdefault((a, r.SecondGlyph), x(r.Value1))
+            else:
+                second = {}
+                for g, c in st.ClassDef2.classDefs.items():
+                    second.setdefault(c, []).append(g)
+                for a in st.Coverage.glyphs:
+                    for c, r in enumerate(st.Class1Record[st.ClassDef1.classDefs.get(a, 0)].Class2Record):
+                        for b in second.get(c, []) if x(r.Value1) else []:
+                            out.setdefault((a, b), x(r.Value1))
+    return {k: v for k, v in out.items() if v}
+
+
+def add_kerning(font, source, factor):
+    """Adds the source font's kerning between the characters both fonts draw to font, each value times factor, and returns how many pairs it kerns"""
+    chars = {g: c for c, g in source.getBestCmap().items()}
+    names = font.getBestCmap()
+    pairs = {}
+    for (a, b), v in kern_pairs(source).items():
+        if a in chars and b in chars and chars[a] in names and chars[b] in names:
+            pairs[(names[chars[a]], names[chars[b]])] = round(v * factor)
+    pairs = {k: v for k, v in pairs.items() if v}
+    if pairs:
+        lines = "".join(f"  pos \\{a} \\{b} {v};\n" for (a, b), v in sorted(pairs.items()))
+        addOpenTypeFeaturesFromString(font, f"languagesystem DFLT dflt;\nlanguagesystem latn dflt;\nfeature kern {{\n{lines}}} kern;\n")
+    return len(pairs)
 
 
 def build_face(font, traces, face, family, style, chars, out):
@@ -688,34 +787,100 @@ def build_face(font, traces, face, family, style, chars, out):
     italic = face != styles.primary()
     buildStatTable(vf, [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)]),
                         dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
+    log.log.info("%s %s kerns %d pairs", family, style, add_kerning(vf, font, SCALE / base_bleed(font)[1]))
     path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{AXIS['tag']}].ttf")
     vf.save(path)
     return path, made
+
+
+def static(path, bleed, out=None):
+    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength"""
+    font = instantiateVariableFont(TTFont(path), {AXIS["tag"]: bleed})
+    name = font["name"]
+    family, style = name.getDebugName(1) + f" Bleed {bleed:g}", name.getDebugName(2)
+    if "STAT" in font:
+        del font["STAT"]
+    ps = family.replace(" ", "") + "-" + style.replace(" ", "")
+    for nid, value in {1: family, 2: style, 3: f"{name.getDebugName(5)};{ps}", 4: f"{family} {style}", 6: ps}.items():
+        name.setName(value, nid, 3, 1, 0x409)
+    name.removeNames(nameID=16)
+    name.removeNames(nameID=17)
+    out = Path(out or Path(path).parent) / (ps + ".ttf")
+    font.save(out)
+    return out
+
+
+def load_session(session, profile=None):
+    """The profile, traces and GF Latin Core characters of a session"""
+    man = json.loads((session / "manifest.json").read_text())
+    rec = man.get("profile", {})
+    prof = target.use(profile or (rec["path"] if rec and Path(rec["path"]).exists() else rec.get("name", target.DEFAULT)))
+    traces = json.loads((session / "traces.json").read_text())
+    chars = [chr(c) for c in json.loads(styles.LATIN_CORE.read_text())["codepoints"]]
+    return prof, traces, chars
+
+
+def style_of(prof, face):
+    return "Regular" if face == prof.primary.name else face.title()
+
+
+def report(path, made, chars):
+    counts = {k: list(made.values()).count(k) for k in sorted(set(made.values()))}
+    missing = [c for c in chars if unicodedata.category(c) != "Zs" and char_name(c) not in made]
+    log.announce("%s: %s, %s, not built: %s", path, len(made), counts, "".join(missing) or "none")
+
+
+def baseline_paths(a, prof):
+    """{face name: synthetic baseline path} from --baseline, --italic-baseline and --face-baseline"""
+    out = {prof.primary.name: a.baseline}
+    for pair in list(a.face_baseline) + ([f"italic={a.italic_baseline}"] if a.italic_baseline else []):
+        name, _, path = pair.partition("=")
+        if not path:
+            raise SystemExit(f"--face-baseline takes NAME=PATH, got {pair!r}")
+        prof.face(name)
+        out[name] = path
+    return out
+
+
+def publish(paths, site):
+    """Writes each face's font as WOFF into site with nomicon-rules.json, which lists the files, the characters each draws and the axes"""
+    site.mkdir(parents=True, exist_ok=True)
+    index = dict(faces={}, chars={}, axes={})
+    for face, path in paths.items():
+        font = TTFont(path)
+        name = f"nomicon-rules-{face}.woff"
+        font.flavor = "woff"
+        font.save(site / name)
+        index["faces"][face] = name
+        index["chars"][face] = sorted(font.getBestCmap())
+        index["axes"] = {a.axisTag: [a.minValue, a.defaultValue, a.maxValue] for a in font["fvar"].axes}
+    (site / "nomicon-rules.json").write_text(json.dumps(index, separators=(",", ":")) + "\n")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("session", help="folder written by glyphstack.session")
     ap.add_argument("-o", "--out", default="build/fonts")
-    target.add_args(ap)
+    ap.add_argument("--site", help="also write the fonts as WOFF into this folder of the site, such as site/public/fonts")
+    ap.add_argument("--profile", help="target profile, a name in glyphstack/profiles or a path to a TOML file")
+    ap.add_argument("--baseline", required=True, help="the primary face's synthetic font baseline, from glyphstack.baseline")
+    ap.add_argument("--italic-baseline", help="the italic face's synthetic font baseline")
+    ap.add_argument("--face-baseline", action="append", default=[], metavar="NAME=PATH", help="another face's synthetic font baseline, repeat for each face")
     log.add_args(ap)
     a = ap.parse_args()
     session, out = Path(a.session), Path(a.out)
     log.start(a, session, "fontbuild")
-    man = json.loads((session / "manifest.json").read_text())
-    rec = man.get("profile", {})
-    prof = target.use(a.profile or (rec["path"] if rec and Path(rec["path"]).exists() else rec.get("name", target.DEFAULT)))
-    traces = json.loads((session / "traces.json").read_text())
-    core = json.loads(styles.LATIN_CORE.read_text())["codepoints"]
-    chars = [chr(c) for c in core]
-    family = prof.primary.full_name
+    prof, traces, chars = load_session(session, a.profile)
     out.mkdir(parents=True, exist_ok=True)
-    for face, path in target.font_paths(a).items():
-        style = "Regular" if face == prof.primary.name else face.title()
-        f, made = build_face(fnt.load_font(path), traces, face, family, style, chars, out)
-        counts = {k: list(made.values()).count(k) for k in sorted(set(made.values()))}
-        missing = [c for c in chars if unicodedata.category(c) != "Zs" and char_name(c) not in made]
-        log.announce("%s: %s, %s, not built: %s", f, len(made), counts, "".join(missing) or "none")
+    built = {}
+    for face, path in baseline_paths(a, prof).items():
+        font = fnt.load_font(path)
+        if not base_bleed(font)[0]:
+            raise SystemExit(f"{path} is not a synthetic font baseline, make one with glyphstack.baseline")
+        built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out)
+        report(built[face], made, chars)
+    if a.site:
+        publish(built, Path(a.site))
 
 
 if __name__ == "__main__":

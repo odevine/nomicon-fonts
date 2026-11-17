@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.recordingPen import DecomposingRecordingPen
@@ -5,7 +7,7 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
-from glyphstack import fontbuild, target
+from glyphstack import baseline, fontbuild, target
 
 V = [(0, 700), (150, 700), (300, 150), (450, 700), (600, 700), (350, 0), (250, 0)]
 LOOK = dict(d=2.5, w=3.3, r=8.0)
@@ -61,21 +63,22 @@ def built(tmp_path):
     return path, made
 
 
-def test_the_axis_runs_from_no_print_look_to_a_quarter_more_than_measured(tmp_path):
+def test_the_axis_runs_from_a_quarter_of_the_print_look_to_a_quarter_more_than_measured(tmp_path):
     path, made = built(tmp_path)
     vf = TTFont(path)
     (ax,) = vf["fvar"].axes
-    assert (ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) == ("BLED", 0, 100, 125)
+    assert (ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) == ("BLED", 25, 100, 125)
     assert made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
     assert vf["glyf"]["Aacute"].isComposite()
 
 
-def test_bleed_0_is_the_measuring_stick_and_100_is_the_trace(tmp_path):
+def test_bleed_25_stays_near_the_measuring_stick_and_100_is_the_trace(tmp_path):
     path, _ = built(tmp_path)
-    at0 = instantiateVariableFont(TTFont(path), {"BLED": 0})
+    at25 = instantiateVariableFont(TTFont(path), {"BLED": 25})
     at100 = instantiateVariableFont(TTFont(path), {"BLED": 100})
-    v = points(at0, "V")
-    assert all(np.abs(v - q).sum(1).min() <= 0.5 for q in V)
+    v = points(at25, "V")
+    # a quarter of the look moves the outer corners by a few units at most
+    assert all(np.abs(v - q).sum(1).min() <= 8 for q in V if q[1] == 700)
     a = points(at100, "A")
     assert np.allclose([a[:, 0].min(), a[:, 0].max(), a[:, 1].min(), a[:, 1].max()], [-5, 605, 0, 700], atol=0.5)
 
@@ -83,10 +86,64 @@ def test_bleed_0_is_the_measuring_stick_and_100_is_the_trace(tmp_path):
 def test_the_print_look_fills_the_acute_notch_and_spreads_the_ink(tmp_path):
     path, _ = built(tmp_path)
     notch = []
-    for b in (0, 100, 125):
+    for b in (25, 100, 125):
         v = points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V")
         middle = v[np.abs(v[:, 0] - 300) < 40]
-        notch.append(middle[:, 1].min() if b == 0 else middle[middle[:, 1] > 100][:, 1].min())
+        notch.append(middle[middle[:, 1] > 100][:, 1].min())
     # the white wedge above the notch fills from its point, further the stronger the look
     assert notch[0] < notch[1] < notch[2]
     assert notch[1] - notch[0] > 10
+
+
+def synthetic_baseline(tmp_path):
+    target.use("rules")
+    tmp_path.mkdir()
+    path, _ = baseline.make(measuring_stick(), traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path)
+    return path
+
+
+def test_the_synthetic_baseline_is_the_measuring_stick_built_at_bleed_25(tmp_path):
+    path, _ = built(tmp_path)
+    static = TTFont(synthetic_baseline(tmp_path / "baseline"))
+    assert "fvar" not in static and "gvar" not in static
+    assert (static["name"].getDebugName(1), static["name"].getDebugName(6)) == ("Test Rules Bleed 25", "TestRulesBleed25-Regular")
+    assert np.allclose(points(static, "V"), points(instantiateVariableFont(TTFont(path), {"BLED": 25}), "V"))
+
+
+def test_a_build_from_the_synthetic_baseline_starts_from_it_and_reaches_the_same_print_look(tmp_path):
+    path, _ = built(tmp_path)
+    source = TTFont(synthetic_baseline(tmp_path / "baseline"))
+    assert fontbuild.base_bleed(source) == (0.25, fontbuild.SCALE)
+    (tmp_path / "again").mkdir()
+    again, made = fontbuild.build_face(source, traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path / "again")
+    assert made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
+    vf = TTFont(again)
+    assert vf["head"].unitsPerEm == 4000 and vf["hmtx"]["V"][0] == 620 * fontbuild.SCALE
+    edge = lambda f, g: np.vstack([fontbuild.dense(P) for c in fontbuild.design(f, "", g, fontbuild.SCALE) for _, P in c])
+    at = lambda p, b, g: edge(instantiateVariableFont(TTFont(p), {"BLED": b}), g)
+    near = lambda a, b: max(np.linalg.norm(a[:, None] - b[None], axis=2).min(1).max(), np.linalg.norm(b[:, None] - a[None], axis=2).min(1).max())
+    # the lowest master is the source's outline, less the short pieces folded into their neighbours, and the others land where the build from the measuring stick put them
+    assert near(at(again, 25, "V"), edge(source, "V")) <= 1
+    assert near(at(again, 100, "V"), at(path, 100, "V")) <= 3 and near(at(again, 125, "V"), at(path, 125, "V")) <= 3
+    assert np.allclose(at(again, 100, "A")[:, 0].min(), -5, atol=0.5)
+    assert [p.name for p in (tmp_path / "again").iterdir()] == ["TestRules[BLED].ttf"]
+
+
+def test_publish_writes_woff_fonts_and_an_index_for_the_site(tmp_path):
+    path, _ = built(tmp_path)
+    fontbuild.publish({"regular": path}, tmp_path / "site")
+    index = json.loads((tmp_path / "site" / "nomicon-rules.json").read_text())
+    assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [25, 100, 125]}
+    assert ord("V") in index["chars"]["regular"] and TTFont(tmp_path / "site" / "nomicon-rules-regular.woff").flavor == "woff"
+
+
+def test_the_fonts_carry_the_source_kerning_through_the_baseline(tmp_path):
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+    stick = measuring_stick()
+    addOpenTypeFeaturesFromString(stick, "feature kern { pos A V -80; pos V acute 30; } kern;")
+    target.use("rules")
+    (tmp_path / "baseline").mkdir()
+    base, _ = baseline.make(stick, traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path / "baseline")
+    assert fontbuild.kern_pairs(TTFont(base)) == {("A", "V"): -80 * fontbuild.SCALE, ("V", "acute"): 30 * fontbuild.SCALE}
+    path, _ = fontbuild.build_face(TTFont(base), traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path)
+    assert fontbuild.kern_pairs(TTFont(path)) == {("A", "V"): -320, ("V", "acute"): 120}
