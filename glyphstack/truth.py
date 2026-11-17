@@ -2,8 +2,9 @@
 
 The text comes as paragraphs from the cards file, in the scan list's Card text format, which gives no printed line
 breaks and no italics.
-Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, and mana symbols such
-as {T} are kept as gaps that are not placed. The box is turned level by its text skew, since a card can sit a degree
+Flavor text, reminder text in parentheses and an ability word before a dash are read as italic, text between underscores
+takes the other face, and mana symbols such as {T} are kept as gaps that are not placed. A frame that splits the text
+gives several boxes, which are fitted as one in reading order. The box is turned level by its text skew, since a card can sit a degree
 askew in a scan the pipeline does not turn. Each printed line is found from the rows of ink, words are given to lines
 by matching the line's ink width, and the glyphs of each line are placed by a Viterbi pass that maximises the summed
 normalised cross correlation of each rendered glyph with a darkness image while letting each advance, kerned as the
@@ -55,14 +56,18 @@ WIDE_JITTER_EM = 0.25
 REFINE_NCC = 0.5
 REFINE_EM = 0.3
 REFINE_OVERLAP = 0.3
+# a die roll's result before its dash, which is rules text rather than an ability word
+DIE_RESULT = re.compile(r"\d+(?:\s*(?:–|-|or)\s*\d+)*\+? — ")
+# the rows of blank paper left between a card's text boxes when they are fitted as one, in ems at the largest print scale
+BOX_GAP_EM = 1.5
 
 
 def paragraphs(text):
     """A cards file text as paragraphs, each a list of (character, face) with mana symbols as ("{X}", "symbol")
 
-    Faces are regular or italic. All flavor text is italic, as are parentheses with what they hold, an
-    ability word before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one, and
-    text the cards file marks italic between underscores
+    Faces are regular or italic. All flavor text is italic, as are parentheses with what they hold and an ability word
+    before a spaced dash at the start of a rules paragraph, though not a modal spell's Choose one or a die roll's
+    result. Text the cards file sets between underscores takes the other face, as a ship's name in flavor text is roman
     """
     out = []
     for raw, flavor in cards.paragraphs(text):
@@ -75,6 +80,9 @@ def paragraphs(text):
         # a modal spell's Choose one is rules text, not an ability word
         if ability and ability.group(1).startswith("Choose "):
             ability = None
+        # so is a die roll's result, such as 1 or 2 or 10–19
+        if ability and DIE_RESULT.fullmatch(ability.group(1)):
+            ability = None
         i = 0
         while i < len(line):
             ch = line[i]
@@ -85,7 +93,7 @@ def paragraphs(text):
                 continue
             if ch == "(":
                 depth += 1
-            italic = flavor or depth > 0 or (ability is not None and i < ability.end()) or marks[i]
+            italic = (flavor or depth > 0 or (ability is not None and i < ability.end())) != marks[i]
             chars.append((ch, "italic" if italic else "regular"))
             if ch == ")":
                 depth = max(depth - 1, 0)
@@ -478,18 +486,26 @@ def assign(pars, lines, glyphs, scores):
     return out
 
 
-def level(g, box=BOX, frame=None):
-    """The rules box of an upright card crop turned level, with the map from the level box back to the card crop
+def box_bounds(g, box, frame=None):
+    """A box given as a share of the card's frame as y0, y1, x0, x1 in the crop's pixels, clipped to the crop
 
-    The box is a share of the card's frame, its y0, y1, x0, x1 in the crop's pixels, which defaults to the whole crop
-    and lies partly outside it for a card the scan cut off
+    The frame defaults to the whole crop and lies partly outside it for a card the scan cut off
     """
     H, W = g.shape
     fy0, fy1, fx0, fx1 = frame or (0, H, 0, W)
     y0, y1 = max(int(fy0 + box[0] * (fy1 - fy0)), 0), min(int(fy0 + box[1] * (fy1 - fy0)), H)
     x0, x1 = max(int(fx0 + box[2] * (fx1 - fx0)), 0), min(int(fx0 + box[3] * (fx1 - fx0)), W)
+    return y0, y1, x0, x1
+
+
+def level(g, box=BOX, frame=None, skew=None):
+    """The rules box of an upright card crop turned level, with the map from the level box back to the card crop
+
+    The box is a share of the card's frame as `box_bounds` takes it. The skew is measured on the box unless given
+    """
+    y0, y1, x0, x1 = box_bounds(g, box, frame)
     crop = g[y0:y1, x0:x1]
-    skew = text_skew(crop)
+    skew = text_skew(crop) if skew is None else skew
     h, w = crop.shape
     M = cv2.getRotationMatrix2D((w / 2, h / 2), skew, 1.0)
     D = cv2.warpAffine(darkness(crop), M, (w, h), flags=cv2.INTER_LINEAR, borderValue=0)
@@ -511,12 +527,13 @@ def level(g, box=BOX, frame=None):
     return D, Ds, back, skew, (y0, y1, x0, x1)
 
 
-def estimate_scale(D, fonts, lo=0.74, hi=1.1, step=0.02, chars="eaon"):
+def estimate_scale(D, fonts, lo=0.62, hi=1.1, step=0.02, chars="eaon"):
     """The print scale at which common letters of the regular face correlate best with the box, in steps of `step`
 
     Each letter's score is the mean of its 40 best correlations over the box, which sit on its printed copies when the
     rendered size matches. Reading the size from line heights instead is thrown off by lines of capitals and by the
-    italic face's smaller x-height
+    italic face's smaller x-height. The range reaches down to the small print of a card crowded with text, as Comet,
+    Stellar Pup is printed at about 0.7
     """
     def score(s):
         gl = Glyphs(fonts, float(s))
@@ -536,13 +553,30 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
     """Truth for one upright card crop: every placed character with its face, quad and bounds in card crop pixels
 
     fonts is {"regular": font, "italic": font}, and frame the card's full frame in the crop's pixels as `level` takes it.
-    Returns a dict with the scale, the text skew, the box and the characters
+    box is one box or a list of them in reading order, for a frame that splits the text, such as a Saga's reminder,
+    chapter column and flavor. Every box is turned level by the skew of the largest and they are stacked into one image
+    with blank rows between, so the text flows from each box's last line to the next box's first and one print scale
+    fits them all. Returns a dict with the scale, the text skew, the bounds of every box and the characters
     """
-    D, Ds, back, skew, bounds = level(g, box, frame)
+    boxes = [tuple(box)] if np.ndim(box) == 1 else [tuple(b) for b in box]
+    areas = [(y1 - y0) * (x1 - x0) for y0, y1, x0, x1 in (box_bounds(g, b, frame) for b in boxes)]
+    big = int(np.argmax(areas))
+    skew = level(g, boxes[big], frame)[3]
+    parts = [level(g, b, frame, skew) for b in boxes]
+    gap = int(BOX_GAP_EM * Glyphs(fonts, 1.1).px_em) if len(parts) > 1 else 0
+    W = max(p[0].shape[1] for p in parts)
+    offsets = np.cumsum([0] + [p[0].shape[0] + gap for p in parts[:-1]]).tolist()
+    D = np.zeros((offsets[-1] + parts[-1][0].shape[0], W), np.float32)
+    Ds = np.zeros_like(D)
+    for off, (d, ds, *_) in zip(offsets, parts):
+        D[off : off + d.shape[0], : d.shape[1]] = d
+        Ds[off : off + d.shape[0], : d.shape[1]] = ds
     pars = paragraphs(text)
     s0 = estimate_scale(D, fonts)
     glyphs = Glyphs(fonts, s0)
-    lines = assign(pars, text_lines(Ds, glyphs), glyphs, Scores(D, glyphs))
+    # lines are found box by box, so a frame bar along a box's edge is still told apart from text
+    found_lines = [dict(l, base=l["base"] + off) for off, p in zip(offsets, parts) for l in text_lines(p[1], glyphs)]
+    lines = assign(pars, found_lines, glyphs, Scores(D, glyphs))
     best = None
     for s in scales or np.round(np.arange(s0 - 0.03, s0 + 0.0301, 0.01), 3):
         gl = Glyphs(fonts, float(s))
@@ -581,19 +615,30 @@ def fit(g, text, fonts, box=BOX, scales=None, frame=None):
     for f in found:
         x0i, x1i, y0i, y1i = f["ink"]
         x, ry = f["x"], f["y"]
+        k = max(i for i, off in enumerate(offsets) if off <= lines[f["li"]]["base"])
+        back = parts[k][2]
+        ry -= offsets[k]
         q = np.array([[x + x0i, ry + y0i], [x + x1i, ry + y0i], [x + x1i, ry + y1i], [x + x0i, ry + y1i]], float)
         q = q @ back[:, :2].T + back[:, 2]
         chars.append(dict(line=f["li"], ch=f["ch"], face=f["face"], ncc=round(f["ncc"], 4), quad=np.round(q, 1).tolist(),
                           x0=int(np.floor(q[:, 0].min())), x1=int(np.ceil(q[:, 0].max())), y0=int(np.floor(q[:, 1].min())), y1=int(np.ceil(q[:, 1].max())))
                      | (dict(small=True) if f["small"] else {}))
-    return dict(scale=s, skew_deg=round(float(skew), 3), box=[int(v) for v in bounds], lines=len(lines), chars=chars)
+    bounds = [[int(v) for v in p[4]] for p in parts]
+    union = [min(b[0] for b in bounds), max(b[1] for b in bounds), min(b[2] for b in bounds), max(b[3] for b in bounds)]
+    return dict(scale=s, skew_deg=round(float(skew), 3), box=union, boxes=bounds, lines=len(lines), chars=chars)
 
 
 def overlay(g, truth, path):
-    """Draws each character's quad on the card's rules box, blue where its correlation is 0.5 or more and red below"""
+    """Draws each character's quad on the card's rules box, blue where its correlation is 0.5 or more and red below
+
+    A card whose text sits in several boxes is drawn over the area holding them all, each box outlined in grey
+    """
     y0, y1, x0, x1 = truth["box"]
     im = Image.fromarray(g[y0:y1, x0:x1]).convert("RGB")
     dr = ImageDraw.Draw(im)
+    boxes = truth.get("boxes") or []
+    for by0, by1, bx0, bx1 in boxes if len(boxes) > 1 else []:
+        dr.rectangle([bx0 - x0, by0 - y0, bx1 - x0 - 1, by1 - y0 - 1], outline=(150, 150, 150), width=2)
     for c in truth["chars"]:
         dr.polygon([(px - x0, py - y0) for px, py in c["quad"]], outline=(0, 120, 255) if c["ncc"] >= 0.5 else (230, 0, 0), width=2)
     im.save(path)

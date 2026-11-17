@@ -119,6 +119,38 @@ def test_fit_places_rendered_text_where_it_was_drawn():
     assert max(err) < 3
 
 
+@needs_fonts
+def test_fit_flows_the_text_through_several_boxes():
+    # a Saga's layout: a reminder band across the top, a chapter column beside art, and flavor below
+    target.use(target.DEFAULT)
+    fonts = {"regular": font.load_font(str(FONT)), "italic": font.load_font(str(ITALIC))}
+    text = dict(rules=["(Read this first.)", "Then the column."], flavor=["Pack my box."])
+    gl = truth.Glyphs(fonts, 0.88)
+    H, W = 4000, 2900
+    card = np.full((H, W), 210, np.uint8)
+    card[1000:3000, 1500:2800] = 40
+    boxes = [(0.08, 0.2, 0.05, 0.95), (0.3, 0.7, 0.05, 0.5), (0.8, 0.92, 0.05, 0.95)]
+    drawn = []
+    for (by0, by1, bx0, _), par in zip(boxes, truth.paragraphs(text)):
+        base, pen = int((by0 + by1) / 2 * H) + 30, float(bx0 * W + 120)
+        for ch, face in par:
+            t = gl(ch, face)
+            if t["img"] is not None:
+                ox, oy = t["off"]
+                h, w = t["img"].shape
+                sl = (slice(base + oy, base + oy + h), slice(int(pen) + ox, int(pen) + ox + w))
+                card[sl] = np.minimum(card[sl], (210 - 185 * t["img"]).astype(np.uint8))
+                ys, xs = np.nonzero(t["img"] > 0.5)
+                drawn.append((ch, int(pen) + ox + (xs.min() + xs.max()) / 2, base + oy + (ys.min() + ys.max()) / 2))
+            pen += t["adv"]
+    card = cv2.GaussianBlur(card, (0, 0), 1.0)
+    got = truth.fit(card, text, fonts, boxes, scales=[0.87, 0.88, 0.89])
+    assert got["lines"] == 3 and len(got["boxes"]) == 3
+    assert [c["ch"] for c in got["chars"]] == [d[0] for d in drawn]
+    err = [np.hypot((c["x0"] + c["x1"]) / 2 - x, (c["y0"] + c["y1"]) / 2 - y) for c, (_, x, y) in zip(got["chars"], drawn)]
+    assert max(err) < 3
+
+
 def test_a_kerned_neighbour_inside_a_units_box_does_not_make_it_merged():
     # a T whose bar reaches over the o after it: the o's centre lies in the T's box but its ink does not
     chars = [dict(ch="T", face="regular", y0=100, y1=160, x0=100, x1=150), dict(ch="o", face="regular", y0=125, y1=160, x0=135, x1=165)]
@@ -171,3 +203,15 @@ def test_underscores_mark_italics_and_an_escaped_one_is_printed():
     assert "".join(ch for ch, _ in par) == "any Magic card set to ADMIN_USER |\\| y0|_|"
     assert [ch for ch, face in par if face == "italic"] == list("Magic")
     assert align.card_text(dict(rules=["any _Magic_ card"], flavor=["y0|\\_|"])) == "any Magic card\ny0|_|"
+
+
+def test_underscores_in_italic_text_mark_roman():
+    flavor, reminder = truth.paragraphs(dict(rules=["(See the _Windshark_.)"], flavor=["—Carella of the _Windshark_"]))[::-1]
+    assert [ch for ch, face in flavor if face == "regular"] == list("Windshark")
+    assert [ch for ch, face in reminder if face == "regular"] == list("Windshark")
+
+
+def test_a_die_rolls_result_is_not_an_ability_word():
+    for line in ("1 or 2 — Draw a card.", "3 — Draw a card.", "10–19 — Draw a card.", "20 — Draw a card."):
+        assert set(faces(truth.paragraphs(dict(rules=[line]))[0])) == {"r"}, line
+    assert faces(truth.paragraphs(dict(rules=["Descend 4 — Draw a card."]))[0]).startswith("i" * len("Descend 4 — "))

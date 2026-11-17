@@ -5,7 +5,8 @@
     python -m glyphstack.bench score SESSION CARDS
 
 CARDS is the session's cards file, which gives each card's printed text and optionally its rules `box` as y0 y1 x0 x1
-fractions of the card for a frame whose rules box sits elsewhere. A card the scan cut off along an edge is measured
+fractions of the card, or a list of them in reading order, for a frame whose text sits elsewhere, and a white-bordered
+card's `size_mm`. A card the scan cut off along an edge is measured
 from its intact edges. `truth` places every printed character of each scan with `truth.fit` and writes
 `<scan stem>.json` and an overlay `<scan stem>.png` to the truth folder, default `truth/` beside the cards file. The truth
 comes from card scans and the card text, so it stays outside git with them. `check` flags scans whose truth looks off:
@@ -55,7 +56,9 @@ def read_scans(path):
     for r in rows:
         if not r["text"]:
             raise SystemExit(f"card {r['card']} has no text in {path}")
-        r["box"] = tuple(r["box"]) if r["box"] else truth.BOX
+        r["size_mm"] = tuple(r["size_mm"]) if r["size_mm"] else CARD_MM
+        b = r["box"]
+        r["box"] = truth.BOX if not b else tuple(tuple(x) for x in b) if np.ndim(b) == 2 else tuple(b)
     return rows
 
 
@@ -64,12 +67,13 @@ def upright_crop(path, angle):
     return upright_frame(path, angle)[0]
 
 
-def upright_frame(path, angle):
+def upright_frame(path, angle, size_mm=CARD_MM):
     """The upright card crop and the card's full frame in its pixels, rebuilt from the intact sides of a card the scan cut off
 
     A side of the card that runs into the edge of the scan is cut. The frame keeps the opposite, intact side and puts
-    the cut one a card's length away, from CARD_MM at the calibrated scale. Turns other than quarter turns are taken as
-    uncut, since their crop is cut again after turning
+    the cut one a card's length away, from size_mm at the calibrated scale. A white-bordered card's border cannot be told
+    from the scanner bed, so its crop and size_mm are the frame inside the border. Turns other than quarter turns are taken
+    as uncut, since their crop is cut again after turning
     """
     g = load_gray(path)
     crop, (oy, ox) = units.card_crop(g)
@@ -83,7 +87,7 @@ def upright_frame(path, angle):
     for _ in range((4 - int(round(angle / 90)) % 4) % 4):
         cut = cut[1:] + cut[:1]
     top, right, bottom, left = cut
-    h, w = CARD_MM[1] * calibration.NOMINAL_PX_PER_MM, CARD_MM[0] * calibration.NOMINAL_PX_PER_MM
+    h, w = size_mm[1] * calibration.NOMINAL_PX_PER_MM, size_mm[0] * calibration.NOMINAL_PX_PER_MM
     if top and not bottom:
         frame[0] = frame[1] - h
     elif bottom and not top:
@@ -117,7 +121,22 @@ def reaches(u, c):
     return bool(u["mask"][y0:y1, x0:x1].any())
 
 
-def score(all_units, kept, chars, ignore=()):
+def text_areas(chars, boxes=None):
+    """The areas a scan's units are scored in as y0, y1, x0, x1, around the characters of each of the truth's boxes
+
+    One area holds all the text of a card with one box. A card whose text is split over several boxes gets one area
+    for each, so the type line and art between them stay out of scoring
+    """
+    groups = [chars]
+    if boxes and len(boxes) > 1:
+        cy = lambda c: (c["y0"] + c["y1"]) / 2
+        cx = lambda c: (c["x0"] + c["x1"]) / 2
+        groups = [[c for c in chars if y0 <= cy(c) < y1 and x0 <= cx(c) < x1] for y0, y1, x0, x1 in boxes]
+    return [(min(c["y0"] for c in g) - 20, max(c["y1"] for c in g) + 20, min(c["x0"] for c in g) - 20, max(c["x1"] for c in g) + 20)
+            for g in groups if g]
+
+
+def score(all_units, kept, chars, ignore=(), boxes=None):
     """Sorts a scan's units against its characters, returns counts and one row per unit near the text
 
     A unit whose box holds exactly one character's centre, and whose own centre lies within FIND_PX of that
@@ -130,15 +149,14 @@ def score(all_units, kept, chars, ignore=()):
     too poorly placed to trust, are not counted
     """
     tc = np.array([((c["y0"] + c["y1"]) / 2, (c["x0"] + c["x1"]) / 2) for c in chars])
-    ty0, ty1 = min(c["y0"] for c in chars) - 20, max(c["y1"] for c in chars) + 20
-    tx0, tx1 = min(c["x0"] for c in chars) - 20, max(c["x1"] for c in chars) + 20
+    areas = text_areas(chars, boxes)
     # the stems and dots split from i and j share the whole letter's ink, so only the letter is scored
     labels = {tuple(u["bbox"]): u["ch"] for u in kept if "part_of" not in u}
     found, rows = {}, []
     for u in all_units:
         y0, y1, x0, x1 = u["bbox"]
         cy, cx = (y0 + y1) / 2, (x0 + x1) / 2
-        if not (ty0 <= cy <= ty1 and tx0 <= cx <= tx1):
+        if not any(ty0 <= cy <= ty1 and tx0 <= cx <= tx1 for ty0, ty1, tx0, tx1 in areas):
             continue
         if any(c["y0"] - FIND_PX <= cy <= c["y1"] + FIND_PX and c["x0"] - FIND_PX <= cx <= c["x1"] + FIND_PX for c in ignore):
             continue
@@ -277,7 +295,7 @@ def load_truth(path):
 
 def truth_scan(r, text, out):
     """Fits one scan's truth and writes its file and overlay, returns a one line summary"""
-    g, frame = upright_frame(r["path"], r["angle"])
+    g, frame = upright_frame(r["path"], r["angle"], r["size_mm"])
     t = truth.fit(g, text, _FONTS, r["box"], frame=frame)
     t.update(scan=r["path"].name, card=r["card"], name=r["name"], angle=r["angle"], shape=list(g.shape))
     mark(t)
@@ -394,13 +412,14 @@ def cmd_score(a):
     caches, tags = {}, {}
     for r in rows:
         stem = r["path"].stem
-        allchars = load_truth(tdir / f"{stem}.json")["chars"]
+        t = load_truth(tdir / f"{stem}.json")
+        allchars = t["chars"]
         chars = [c for c in allchars if not (c["cut"] or c["uncertain"])]
         ignore = [c for c in allchars if c["cut"] or c["uncertain"]]
         cache = pickle.load(open(session / "work" / "units" / f"{stem}.pkl", "rb"))
         caches[stem] = cache
         all_units = units.extract_scan(r["path"], r["angle"])["units"]
-        counts, urows = score(all_units, cache["units"], chars, ignore)
+        counts, urows = score(all_units, cache["units"], chars, ignore, t.get("boxes"))
         g = upright_crop(r["path"], r["angle"])
         bg = background(chars, g)
         by = {tuple(int(v) for v in u["bbox"]): (k, u) for k, u in enumerate(cache["units"])}
