@@ -38,7 +38,7 @@ def measuring_stick():
     fb.setupGlyf({".notdef": box(0, 0, 10, 10), "A": box(0, 0, 600, 700), "V": poly(V), "acute": box(0, 500, 100, 600), "Aacute": pen.glyph()})
     fb.setupHorizontalMetrics({".notdef": (100, 0), "A": (650, 0), "V": (620, 0), "acute": (300, 0), "Aacute": (650, 0)})
     fb.setupHorizontalHeader(ascent=800, descent=-200)
-    fb.setupOS2()
+    fb.setupOS2(sxHeight=500, sCapHeight=700, sTypoDescender=-200)
     fb.setupPost()
     return fb.font
 
@@ -147,3 +147,42 @@ def test_the_fonts_carry_the_source_kerning_through_the_baseline(tmp_path):
     assert fontbuild.kern_pairs(TTFont(base)) == {("A", "V"): -80 * fontbuild.SCALE, ("V", "acute"): 30 * fontbuild.SCALE}
     path, _ = fontbuild.build_face(TTFont(base), traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path)
     assert fontbuild.kern_pairs(TTFont(path)) == {("A", "V"): -320, ("V", "acute"): 120}
+
+
+def bold_built(tmp_path):
+    target.use("rules")
+    return fontbuild.build_face(measuring_stick(), traces(), "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path, weight=True)
+
+
+def test_the_weight_axis_leaves_the_regular_as_it_was(tmp_path):
+    path, made = bold_built(tmp_path)
+    (tmp_path / "plain").mkdir()
+    plain, _ = built(tmp_path / "plain")
+    vf = TTFont(path)
+    assert [(a.axisTag, a.minValue, a.defaultValue, a.maxValue) for a in vf["fvar"].axes] == [("BLED", 25, 100, 125), ("wght", 400, 400, 700)]
+    assert path.name == "TestRules[BLED,wght].ttf" and made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
+    edge = lambda f, g: np.vstack([fontbuild.dense(P) for c in fontbuild.design(f, "", g, fontbuild.SCALE, fontbuild.SplinePen) for _, P in c])
+    for b in (25, 60, 100, 125):
+        regular = instantiateVariableFont(TTFont(path), {"BLED": b, "wght": 400})
+        before = instantiateVariableFont(TTFont(plain), {"BLED": b})
+        for g in ("A", "V", "acute"):
+            # the quadratic splines are shared with the bold, so their points differ but the outline stays within the conversion's tolerance
+            d = np.linalg.norm(edge(regular, g)[:, None] - edge(before, g)[None], axis=2)
+            assert max(d.min(0).max(), d.min(1).max()) <= 2 * fontbuild.MAX_ERR
+        assert all(regular["hmtx"][g] == before["hmtx"][g] for g in ("A", "V", "acute", "Aacute"))
+
+
+def test_the_bold_grows_stems_across_keeps_its_heights_and_widens_the_advance(tmp_path):
+    path, _ = bold_built(tmp_path)
+    bold = instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 700})
+    a = points(bold, "A")
+    # the traced box grows BOLD x each side and moves right as far, so its left side bearing stays, its top and bottom hold
+    x, y = fontbuild.BOLD["x"], fontbuild.BOLD["y"]
+    assert np.allclose([a[:, 0].min(), a[:, 0].max(), a[:, 1].min(), a[:, 1].max()], [-5, 605 + 2 * x, 0, 700], atol=1.5)
+    assert y < x
+    for g, adv in (("A", 650), ("V", 620), ("Aacute", 650)):
+        assert bold["hmtx"][g][0] == (adv + 2 * x) * fontbuild.SCALE
+    assert bold["glyf"]["Aacute"].isComposite()
+    # the V's strokes thicken, so the notch between them rises
+    middle = lambda f: (lambda v: v[(np.abs(v[:, 0] - 300 - x) < 40) & (v[:, 1] > 100)][:, 1].min())(points(f, "V"))
+    assert middle(bold) > middle(instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 400})) + 20

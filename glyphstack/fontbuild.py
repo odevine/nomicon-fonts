@@ -7,7 +7,8 @@ which glyphstack.baseline makes, is each face drawn at a Bleed of 25 and is the 
 no stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
 each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
 outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
-The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed
+The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed. With --weight
+the fonts also have a Weight axis from 400 to a bold at 700, each glyph's regular outline grown with the same points
 
     python -m glyphstack.fontbuild build/session --baseline build/synthetic_baseline/NomiconRulesBleed25-Regular.ttf \
         --italic-baseline build/synthetic_baseline/NomiconRulesBleed25-Italic.ttf -o build/fonts --site site/public/fonts
@@ -61,6 +62,15 @@ MIN_SEGMENT = 2.0
 MAX_MISFIT = 8.0
 # a segment between two corners shorter than this in grid px is a slit's tip, folded into one corner
 TIP_PX = 3.0
+# the optional Weight axis, whose bold master is the regular grown by BOLD
+WEIGHT = dict(tag="wght", name="Weight", minimum=400, default=400, maximum=700)
+# how far the bold grows each side in measuring stick units, across and up and down, the measuring stick's bold
+# stems being 30 wider each side than its regular and its horizontal strokes 5
+BOLD = dict(x=30.0, y=5.0)
+# the longest an outer corner's point may move as a multiple of the offset
+MITRE = 2.0
+# how far apart in measuring stick units the points of a filled notch sit
+UNLOOP_GAP = 0.25
 
 
 class SegmentPen(BasePen):
@@ -588,6 +598,108 @@ def misfit_um(contours, pl, F):
     return float(np.sqrt((sym_dev(poly, edge) ** 2).mean()) * UM_PER_PX)
 
 
+def crossing(A, B, C, D):
+    """Where segment AB crosses segment CD, None when they don't"""
+    r, q = B - A, D - C
+    den = r[0] * q[1] - r[1] * q[0]
+    if abs(den) < 1e-12:
+        return None
+    t = ((C - A)[0] * q[1] - (C - A)[1] * q[0]) / den
+    u = ((C - A)[0] * r[1] - (C - A)[1] * r[0]) / den
+    return A + t * r if 0 <= t <= 1 and 0 <= u <= 1 else None
+
+
+def unloop(pts, inner, reach=12):
+    """Control points with each loop a grown inner corner makes, where the sides before it cross the sides after it, closed up onto the crossing"""
+    n = len(pts)
+    reach = min(reach, n // 2 - 1)
+    for i in np.where(inner)[0]:
+        best = None
+        for jb in range(i - 2, i - reach - 1, -1):
+            for ja in range(i + 1, i + reach):
+                X = crossing(pts[jb % n], pts[(jb + 1) % n], pts[ja % n], pts[(ja + 1) % n])
+                if X is not None and (best is None or ja - jb < best[1] - best[0]):
+                    best = (jb, ja, X)
+        if best:
+            # the points close up along the two sides either side of the crossing, a fraction of a unit apart, so no segment has no length
+            jb, ja, X = best
+            ub = pts[(jb + 1) % n] - pts[jb % n]
+            ua = pts[(ja + 1) % n] - pts[ja % n]
+            ub, ua = ub / max(np.linalg.norm(ub), 1e-9), ua / max(np.linalg.norm(ua), 1e-9)
+            k = ja - jb
+            for m, j in enumerate(range(jb + 1, ja + 1)):
+                s = (m + 1 - (k + 1) / 2) * UNLOOP_GAP
+                pts[j % n] = X + s * (ua if s > 0 else ub)
+    return pts
+
+
+def grow(contours, a, b):
+    """Contours with every point, handles included, moved out of the ink by a across and b up and down, mitred at corners
+
+    Each point moves along the mitre of the control polygon's edges either side of it, worked out in a space scaled
+    by 1/a across and 1/b up and down so the offset is the same each way, then scaled back. An outer corner's mitre
+    longer than MITRE times the offset is cut to that, which keeps sharp points from shooting out. Where the grown
+    sides of an inner corner cross, the points between close up onto the crossing, as the ink fills the notch
+    """
+    area = lambda c: sum(P[0, 0] * P[3, 1] - P[3, 0] * P[0, 1] for _, P in c)
+    # the contour with the largest area is an outer one, and out of the ink is to its left when it runs clockwise
+    side = np.sign(area(max(contours, key=lambda c: abs(area(c))))) or -1.0
+    out = []
+    for c in contours:
+        pts = np.vstack([P[:3] for _, P in c]) / [a, b]
+        n = len(pts)
+        moved, inner = np.empty_like(pts), np.zeros(n, bool)
+        for i in range(n):
+            back = next((pts[i] - pts[(i - j) % n] for j in range(1, n) if np.linalg.norm(pts[i] - pts[(i - j) % n]) > 1e-6), None)
+            ahead = next((pts[(i + j) % n] - pts[i] for j in range(1, n) if np.linalg.norm(pts[(i + j) % n] - pts[i]) > 1e-6), None)
+            if back is None:
+                moved[i] = pts[i]
+                continue
+            n1, n2 = (np.array([v[1], -v[0]]) * side / np.linalg.norm(v) for v in (back, ahead))
+            m = (n1 + n2) / max(1 + n1 @ n2, 1e-9)
+            u, v = back * [a, b], ahead * [a, b]
+            inner[i] = ahead @ n1 > 1e-6 and np.degrees(np.arccos(np.clip(u @ v / np.linalg.norm(u) / np.linalg.norm(v), -1, 1))) > CORNER_DEG
+            # an inner corner moves to where its grown sides meet, up to 4 times the offset across
+            far = np.linalg.norm(m * [a, b]) / (4 * a) if inner[i] else np.linalg.norm(m) / MITRE
+            moved[i] = pts[i] + m / max(1.0, far)
+        moved = unloop(moved * [a, b], inner)
+        segs = [np.vstack([moved[3 * k:3 * k + 3], moved[(3 * k + 3) % n]]) for k in range(len(c))]
+        out.append(closed([(kind, S if kind == "C" else line(S[0], S[3])) for (kind, _), S in zip(c, segs)]))
+    return out
+
+
+def zones(font, k):
+    """The heights the bold keeps, descender, baseline, x-height and cap height, in measuring stick units"""
+    os2 = font["OS/2"]
+    return [os2.sTypoDescender / k, 0.0, os2.sxHeight / k, os2.sCapHeight / k]
+
+
+def hold_heights(contours, heights):
+    """Contours grown BOLD["y"] up and down moved back so their tops and bottoms sit on the heights they grew from,
+    and moved BOLD["x"] right so the left side bearing stays"""
+    b = BOLD["y"]
+    lo, hi = heights[:2], heights[2:]
+    grown = [h - b for h in lo] + [h + b for h in hi]
+
+    def move(P):
+        y = np.interp(P[:, 1], grown, heights, left=np.nan, right=np.nan)
+        y = np.where(P[:, 1] < grown[0], P[:, 1] + b, np.where(P[:, 1] > grown[-1], P[:, 1] - b, y))
+        return np.stack([P[:, 0] + BOLD["x"], y], 1)
+
+    return [closed([(kind, move(P)) for kind, P in c]) for c in contours]
+
+
+def embolden(contours, heights):
+    """The bold of a regular outline, grown by BOLD with its heights held, with the same points"""
+    return hold_heights(grow(contours, BOLD["x"], BOLD["y"]), heights)
+
+
+def sources(weight=False):
+    """The location of each master, Bleed at every weight"""
+    weights = (WEIGHT["minimum"], WEIGHT["maximum"]) if weight else (None,)
+    return [{AXIS["name"]: m} | ({WEIGHT["name"]: w} if w else {}) for w in weights for m in MASTERS]
+
+
 def quadratic(masters):
     """TrueType glyphs of one glyph's masters, each curve converted to quadratics with the same points in every master"""
     pens = [TTGlyphPen(None) for _ in masters]
@@ -632,11 +744,14 @@ def base_bleed(font):
     return (float(m.group(1)) / 100, SCALE) if m else (0.0, 1)
 
 
-def face_glyphs(font, traces, face, chars):
-    """{glyph name: [glyph of each master]}, the cmap and the advances of one face, with a summary of how each glyph was made
+def face_glyphs(font, traces, face, chars, weight=False):
+    """{glyph name: [glyph of each master]}, the cmap and the advances of each master of one face, with a summary of how each glyph was made
 
     The source is the measuring stick or a static font this module saved at a Bleed of its own, whose outlines already
-    carry that much of the print look, so each glyph's masters start from it and take only the rest
+    carry that much of the print look, so each glyph's masters start from it and take only the rest. With weight the
+    masters of `sources` come at the regular weight and again at the bold, whose source outline is the regular's grown
+    by `embolden` and drawn with the print look the same way, and whose traced glyphs move by the change the bold
+    makes to the source outline at each Bleed, which keeps the printed shape's own departures from the measuring stick
     """
     t0, k = base_bleed(font)
     looks = [e["look"] for k, e in traces.items() if styles.style_of(k) == face and e.get("built") == "outline"]
@@ -649,6 +764,9 @@ def face_glyphs(font, traces, face, chars):
         raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS[0]}")
     want, cmap = {}, {}
     taken = {char_name(ch) for ch in chars}
+    weights = 2 if weight else 1
+    heights = zones(font, k)
+    wider = lambda w, extra=2 * BOLD["x"]: [w] * len(ts) + [w + extra] * len(ts) * (weights - 1)
 
     def need(ch, name=None):
         """The glyph name of a character or a named glyph of the measuring stick, queued for building"""
@@ -669,14 +787,14 @@ def face_glyphs(font, traces, face, chars):
         ch, name = want[gname]
         e = traces.get(styles.key(face, ch)) if ch else None
         if e is None and ch and ord(ch) in font.getBestCmap() and not font["glyf"][font.getBestCmap()[ord(ch)]].numberOfContours:
-            glyphs[gname] = [TTGlyphPen(None).glyph()] * len(ts)
-            adv[gname], made[gname] = font["hmtx"][font.getBestCmap()[ord(ch)]][0] / k, "empty"
+            glyphs[gname] = [TTGlyphPen(None).glyph()] * len(ts) * weights
+            adv[gname], made[gname] = wider(font["hmtx"][font.getBestCmap()[ord(ch)]][0] / k, 0), "empty"
             continue
         if e and e.get("parts"):
             parts = [(need(p["char"], p["glyph"]), p["offset"]) for p in e["parts"]]
             todo += [n for n, _ in parts]
-            glyphs[gname] = [composite(parts)] * len(ts)
-            adv[gname], made[gname] = e["adv"], e["built"]
+            glyphs[gname] = [composite(parts)] * len(ts) * weights
+            adv[gname], made[gname] = wider(e["adv"]), e["built"]
             continue
         contours = design(font, ch or "", None if ch else name, k, SplinePen if t0 else SegmentPen)
         if not contours:
@@ -690,15 +808,23 @@ def face_glyphs(font, traces, face, chars):
             ref = [refine(c, corner_reach(pl, look, ts[-1])) for c in contours]
             rc, joints = [r[0] for r in ref], [j for r in ref for j in r[1]]
         masters, held = standins(rc, joints, pl, look, ts, t0=t0)
+        if weight:
+            bold = embolden(rc, heights)
+            more, held_bold = standins(bold, joints, Placed(bold, shared), look, ts, t0=t0)
+            if held_bold is not None:
+                log.log.warning("%s %s bold stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held_bold * 100))
         made[gname] = "outline"
         if e and not e.get("built"):
             trace = parse_trace(e["trace"])
-            masters = [displaced(trace, masters[ts.index(1.0)], m, pl) for m in masters]
+            at1 = masters[ts.index(1.0)]
+            masters = [displaced(trace, at1, m, pl) for m in masters + (more if weight else [])]
             made[gname] = "prior" if e.get("prior") else "traced"
+        elif weight:
+            masters = masters + more
         if held is not None:
-                log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
+            log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
         glyphs[gname] = quadratic(masters)
-        adv[gname] = e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k
+        adv[gname] = wider(e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k)
     return glyphs, cmap, adv, made
 
 
@@ -714,7 +840,7 @@ def master_font(font, face, glyphs, cmap, adv, i, family, style):
     for n in order:
         g = glyf[n]
         g.recalcBounds(glyf)
-        metrics[n] = (round(adv.get(n, font["hmtx"][".notdef"][0] / k) * SCALE), getattr(g, "xMin", 0))
+        metrics[n] = (round(adv[n][i] * SCALE if n in adv else font["hmtx"][".notdef"][0] / k * SCALE), getattr(g, "xMin", 0))
     fb.setupHorizontalMetrics(metrics)
     os2, hhea = font["OS/2"], font["hhea"]
     m = lambda v: round(v * SCALE / k)
@@ -770,25 +896,29 @@ def add_kerning(font, source, factor):
     return len(pairs)
 
 
-def build_face(font, traces, face, family, style, chars, out):
-    """Writes one face's variable font and returns its path and how each glyph was made"""
-    glyphs, cmap, adv, made = face_glyphs(font, traces, face, chars)
+def build_face(font, traces, face, family, style, chars, out, weight=False):
+    """Writes one face's variable font, with a Weight axis when weight is set, and returns its path and how each glyph was made"""
+    glyphs, cmap, adv, made = face_glyphs(font, traces, face, chars, weight)
+    axes = [AXIS] + ([WEIGHT] if weight else [])
     ds = DesignSpaceDocument()
-    ds.addAxis(AxisDescriptor(**AXIS))
-    for i, m in enumerate(MASTERS):
+    for ax in axes:
+        ds.addAxis(AxisDescriptor(**ax))
+    for i, loc in enumerate(sources(weight)):
         src = SourceDescriptor()
         src.font = master_font(font, face, glyphs, cmap, adv, i, family, style)
-        src.location, src.name = {AXIS["name"]: m}, f"{style} bleed {m}"
+        src.location, src.name = loc, f"{style} " + " ".join(f"{k.lower()} {v}" for k, v in loc.items())
         ds.addSource(src)
     inst = InstanceDescriptor()
-    inst.familyName, inst.styleName, inst.location = family, style, {AXIS["name"]: AXIS["default"]}
+    inst.familyName, inst.styleName, inst.location = family, style, {ax["name"]: ax["default"] for ax in axes}
     ds.addInstance(inst)
     vf, _, _ = varLib.build(ds)
     italic = face != styles.primary()
-    buildStatTable(vf, [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)]),
-                        dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
+    stat = [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)])]
+    if weight:
+        stat.append(dict(tag=WEIGHT["tag"], name=WEIGHT["name"], values=[dict(value=400, name="Regular", flags=0x2, linkedValue=700), dict(value=700, name="Bold")]))
+    buildStatTable(vf, stat + [dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
     log.log.info("%s %s kerns %d pairs", family, style, add_kerning(vf, font, SCALE / base_bleed(font)[1]))
-    path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{AXIS['tag']}].ttf")
+    path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{','.join(ax['tag'] for ax in axes)}].ttf")
     vf.save(path)
     return path, made
 
@@ -866,6 +996,7 @@ def main():
     ap.add_argument("--baseline", required=True, help="the primary face's synthetic font baseline, from glyphstack.baseline")
     ap.add_argument("--italic-baseline", help="the italic face's synthetic font baseline")
     ap.add_argument("--face-baseline", action="append", default=[], metavar="NAME=PATH", help="another face's synthetic font baseline, repeat for each face")
+    ap.add_argument("--weight", action="store_true", help="add a Weight axis from 400 to a bold at 700 grown from the regular")
     log.add_args(ap)
     a = ap.parse_args()
     session, out = Path(a.session), Path(a.out)
@@ -877,7 +1008,7 @@ def main():
         font = fnt.load_font(path)
         if not base_bleed(font)[0]:
             raise SystemExit(f"{path} is not a synthetic font baseline, make one with glyphstack.baseline")
-        built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out)
+        built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out, a.weight)
         report(built[face], made, chars)
     if a.site:
         publish(built, Path(a.site))
