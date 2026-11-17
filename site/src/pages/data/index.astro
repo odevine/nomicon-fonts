@@ -41,6 +41,7 @@ const files = [
 ];
 const gl = readdirSync('data/glyphs').length;
 const rows = glyphs();
+const byCount = [...rows].sort((a, z) => z.n - a.n || a.name.localeCompare(z.name));
 const docs = rows.map((r) => ({ r, d: glyph(r.name), sw: sweepOf(r.name) }));
 const pairs = Object.entries(kerning()).sort((a, z) => z[1].n - a[1].n);
 const kb = (f: string) => `${Math.round(fileSize(f) / 1024)} KB`;
@@ -112,9 +113,9 @@ const sizes: Record<string, string> = {
     <h2 id="glyphs">Glyphs</h2>
     <div class="scroll wide" tabindex="0" role="region" aria-label="Glyph statistics table">
       <table data-sortable>
-        <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick. Select a column heading to sort by it.</caption>
-        <thead><tr><th data-type="text">Glyph</th><th class="r">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
-        <tbody>{rows.map((r) => <tr><th scope="row" data-v={glyphLabel(r.char, r.style)}><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.source === 'prior' ? ' (prior)' : r.low_confidence ? ' (low confidence)' : ''}</th><td class="r" data-v={r.n}>{r.n}</td><td class="r" data-v={r.cards}>{r.cards}</td><td class="r" data-v={r.nodes}>{r.nodes}</td><td class="r" data-v={r.edge_rms_um ?? ''}>{fmt(r.edge_rms_um, 2)}</td><td class="r" data-v={r.iou ?? ''}>{fmt(r.iou, 3)}</td><td class="r" data-v={r.recommended_n ?? ''}>{r.recommended_n}</td></tr>)}</tbody>
+        <caption>Statistics for each glyph, from glyphs.json. Edge RMS and IoU are against the measuring stick. Sorted by instances. Select a column heading to sort by another.</caption>
+        <thead><tr><th data-type="text">Glyph</th><th class="r" aria-sort="descending">Instances</th><th class="r">Cards</th><th class="r">Nodes</th><th class="r">Edge RMS µm</th><th class="r">IoU</th><th class="r">Recommended N</th></tr></thead>
+        <tbody>{byCount.map((r) => <tr><th scope="row" data-v={glyphLabel(r.char, r.style)}><a href={href(`/glyphs/${r.name}/`)}>{glyphLabel(r.char, r.style)}</a>{r.source === 'prior' ? ' (prior)' : r.low_confidence ? ' (low confidence)' : ''}</th><td class="r" data-v={r.n}>{r.n}</td><td class="r" data-v={r.cards}>{r.cards}</td><td class="r" data-v={r.nodes}>{r.nodes}</td><td class="r" data-v={r.edge_rms_um ?? ''}>{fmt(r.edge_rms_um, 2)}</td><td class="r" data-v={r.iou ?? ''}>{fmt(r.iou, 3)}</td><td class="r" data-v={r.recommended_n ?? ''}>{r.recommended_n}</td></tr>)}</tbody>
       </table>
     </div>
 

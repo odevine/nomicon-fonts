@@ -52,23 +52,22 @@ test('data page shows the measured edge width range and the tied noise pair', as
   expect(body).toContain(`${read('noise.json').headline.single_scan_um.toFixed(1)} µm`);
 });
 
-test('the glyph table sorts by each column and returns to the export order', async ({ page }) => {
+test('the glyph table opens sorted by instances and sorts by each column', async ({ page }) => {
   await page.goto('/data/');
   const table = page.locator('div[aria-label="Glyph statistics table"] table');
   const col = (i: number) => table.locator('tbody tr').evaluateAll((rows, i) => rows.map((r) => (r as HTMLTableRowElement).cells[i].dataset.v ?? ''), i);
-  const first = await col(0);
-  const instances = table.getByRole('button', { name: 'Instances' });
-  await instances.click();
-  await expect(table.locator('thead th').nth(1)).toHaveAttribute('aria-sort', 'descending');
+  const head = table.locator('thead th').nth(1);
+  await expect(head).toHaveAttribute('aria-sort', 'descending');
   const down = (await col(1)).map(Number);
   expect(down).toEqual([...down].sort((a, b) => b - a));
+  const instances = table.getByRole('button', { name: 'Instances' });
   await instances.click();
-  await expect(table.locator('thead th').nth(1)).toHaveAttribute('aria-sort', 'ascending');
+  await expect(head).toHaveAttribute('aria-sort', 'ascending');
   const up = (await col(1)).map(Number);
   expect(up).toEqual([...up].sort((a, b) => a - b));
   await instances.click();
-  await expect(table.locator('th[aria-sort]')).toHaveCount(0);
-  expect(await col(0)).toEqual(first);
+  await expect(head).toHaveAttribute('aria-sort', 'descending');
+  expect((await col(1)).map(Number)).toEqual(down);
   // missing figures stay at the bottom whichever way the column runs
   const rms = table.getByRole('button', { name: /Edge RMS/ });
   for (const _ of [0, 1]) {
