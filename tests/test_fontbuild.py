@@ -67,26 +67,26 @@ def test_the_axis_runs_from_a_quarter_of_the_print_look_to_a_quarter_more_than_m
     path, made = built(tmp_path)
     vf = TTFont(path)
     (ax,) = vf["fvar"].axes
-    assert (ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) == ("BLED", 25, 100, 125)
+    assert (ax.axisTag, ax.minValue, ax.defaultValue, ax.maxValue) == ("BLED", 0, 75, 100)
     assert made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
     assert vf["glyf"]["Aacute"].isComposite()
 
 
-def test_bleed_25_stays_near_the_measuring_stick_and_100_is_the_trace(tmp_path):
+def test_bleed_0_stays_near_the_measuring_stick_and_75_is_the_trace(tmp_path):
     path, _ = built(tmp_path)
-    at25 = instantiateVariableFont(TTFont(path), {"BLED": 25})
-    at100 = instantiateVariableFont(TTFont(path), {"BLED": 100})
-    v = points(at25, "V")
+    at0 = instantiateVariableFont(TTFont(path), {"BLED": 0})
+    at75 = instantiateVariableFont(TTFont(path), {"BLED": 75})
+    v = points(at0, "V")
     # a quarter of the look moves the outer corners by a few units at most
     assert all(np.abs(v - q).sum(1).min() <= 8 for q in V if q[1] == 700)
-    a = points(at100, "A")
+    a = points(at75, "A")
     assert np.allclose([a[:, 0].min(), a[:, 0].max(), a[:, 1].min(), a[:, 1].max()], [-5, 605, 0, 700], atol=0.5)
 
 
 def test_the_print_look_fills_the_acute_notch_and_spreads_the_ink(tmp_path):
     path, _ = built(tmp_path)
     notch = []
-    for b in (25, 100, 125):
+    for b in (0, 75, 100):
         v = points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V")
         middle = v[np.abs(v[:, 0] - 300) < 40]
         notch.append(middle[middle[:, 1] > 100][:, 1].min())
@@ -102,12 +102,12 @@ def synthetic_baseline(tmp_path):
     return path
 
 
-def test_the_synthetic_baseline_is_the_measuring_stick_built_at_bleed_25(tmp_path):
+def test_the_synthetic_baseline_is_the_measuring_stick_built_at_bleed_0(tmp_path):
     path, _ = built(tmp_path)
     static = TTFont(synthetic_baseline(tmp_path / "baseline"))
     assert "fvar" not in static and "gvar" not in static
     assert (static["name"].getDebugName(1), static["name"].getDebugName(6)) == ("Test Rules Bleed 25", "TestRulesBleed25-Regular")
-    assert np.allclose(points(static, "V"), points(instantiateVariableFont(TTFont(path), {"BLED": 25}), "V"))
+    assert np.allclose(points(static, "V"), points(instantiateVariableFont(TTFont(path), {"BLED": 0}), "V"))
 
 
 def test_a_build_from_the_synthetic_baseline_starts_from_it_and_reaches_the_same_print_look(tmp_path):
@@ -123,8 +123,8 @@ def test_a_build_from_the_synthetic_baseline_starts_from_it_and_reaches_the_same
     at = lambda p, b, g: edge(instantiateVariableFont(TTFont(p), {"BLED": b}), g)
     near = lambda a, b: max(np.linalg.norm(a[:, None] - b[None], axis=2).min(1).max(), np.linalg.norm(b[:, None] - a[None], axis=2).min(1).max())
     # the lowest master is the source's outline, less the short pieces folded into their neighbours, and the others land where the build from the measuring stick put them
-    assert near(at(again, 25, "V"), edge(source, "V")) <= 1
-    assert near(at(again, 100, "V"), at(path, 100, "V")) <= 3 and near(at(again, 125, "V"), at(path, 125, "V")) <= 3
+    assert near(at(again, 0, "V"), edge(source, "V")) <= 1
+    assert near(at(again, 75, "V"), at(path, 75, "V")) <= 3 and near(at(again, 100, "V"), at(path, 100, "V")) <= 3
     assert np.allclose(at(again, 100, "A")[:, 0].min(), -5, atol=0.5)
     assert [p.name for p in (tmp_path / "again").iterdir()] == ["TestRules[BLED].ttf"]
 
@@ -133,8 +133,9 @@ def test_publish_writes_woff_fonts_and_an_index_for_the_site(tmp_path):
     path, _ = built(tmp_path)
     fontbuild.publish({"regular": path}, tmp_path / "site")
     index = json.loads((tmp_path / "site" / "nomicon-rules.json").read_text())
-    assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [25, 100, 125]}
+    assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [0, 75, 100]}
     assert ord("V") in index["chars"]["regular"] and TTFont(tmp_path / "site" / "nomicon-rules-regular.woff").flavor == "woff"
+    assert (tmp_path / "site" / "OFL.txt").read_text().startswith(fontbuild.COPYRIGHT)
 
 
 def test_the_fonts_carry_the_source_kerning_through_the_baseline(tmp_path):
@@ -159,10 +160,10 @@ def test_the_weight_axis_leaves_the_regular_as_it_was(tmp_path):
     (tmp_path / "plain").mkdir()
     plain, _ = built(tmp_path / "plain")
     vf = TTFont(path)
-    assert [(a.axisTag, a.minValue, a.defaultValue, a.maxValue) for a in vf["fvar"].axes] == [("BLED", 25, 100, 125), ("wght", 400, 400, 700)]
+    assert [(a.axisTag, a.minValue, a.defaultValue, a.maxValue) for a in vf["fvar"].axes] == [("BLED", 0, 75, 100), ("wght", 400, 400, 700)]
     assert path.name == "TestRules[BLED,wght].ttf" and made == {"A": "traced", "V": "outline", "acute": "outline", "Aacute": "composed"}
     edge = lambda f, g: np.vstack([fontbuild.dense(P) for c in fontbuild.design(f, "", g, fontbuild.SCALE, fontbuild.SplinePen) for _, P in c])
-    for b in (25, 60, 100, 125):
+    for b in (0, 35, 75, 100):
         regular = instantiateVariableFont(TTFont(path), {"BLED": b, "wght": 400})
         before = instantiateVariableFont(TTFont(plain), {"BLED": b})
         for g in ("A", "V", "acute"):
@@ -174,7 +175,7 @@ def test_the_weight_axis_leaves_the_regular_as_it_was(tmp_path):
 
 def test_the_bold_grows_stems_across_keeps_its_heights_and_widens_the_advance(tmp_path):
     path, _ = bold_built(tmp_path)
-    bold = instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 700})
+    bold = instantiateVariableFont(TTFont(path), {"BLED": 75, "wght": 700})
     a = points(bold, "A")
     # the traced box grows BOLD x each side and moves right as far, so its left side bearing stays, its top and bottom hold
     x, y = fontbuild.BOLD["x"], fontbuild.BOLD["y"]
@@ -185,7 +186,7 @@ def test_the_bold_grows_stems_across_keeps_its_heights_and_widens_the_advance(tm
     assert bold["glyf"]["Aacute"].isComposite()
     # the V's strokes thicken, so the notch between them rises
     middle = lambda f: (lambda v: v[(np.abs(v[:, 0] - 300 - x) < 40) & (v[:, 1] > 100)][:, 1].min())(points(f, "V"))
-    assert middle(bold) > middle(instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 400})) + 20
+    assert middle(bold) > middle(instantiateVariableFont(TTFont(path), {"BLED": 75, "wght": 400})) + 20
 
 
 def curved_v():
@@ -228,12 +229,12 @@ def test_a_traced_glyph_beside_a_filled_notch_keeps_its_smooth_joints_smooth_at_
     assert made["V"] == "traced"
     # the joints either side of the notch's curve and halfway down each inner side of the strokes
     joints = [(270, 260), (330, 260), (210, 480), (390, 480)]
-    for b in (25, 50, 125):
+    for b in (0, 25, 100):
         at = instantiateVariableFont(TTFont(path), {"BLED": b})
         assert max(joint_kinks(at, "V", joints)) < 1
-    # the notch still opens up at 25, where the measuring stick's notch is sharper
+    # the notch still opens up at 0, where the measuring stick's notch is sharper
     v = lambda b: (lambda pts: pts[(np.abs(pts[:, 0] - 300) < 40) & (pts[:, 1] > 100)][:, 1].min())(points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V"))
-    assert v(25) < v(100) - 5
+    assert v(0) < v(75) - 5
 
 
 def test_a_traced_stem_beside_a_filled_notch_keeps_an_even_width_where_its_baseline_moves_unevenly():

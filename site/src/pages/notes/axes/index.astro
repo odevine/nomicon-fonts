@@ -16,7 +16,7 @@ const n = note('/notes/axes/');
 
     <section class="flow" aria-labelledby="bleed">
       <h2 id="bleed">Bleed is the axis the cards actually show</h2>
-      <p>Every face has a print look, the ink spread and corner rounding that draw the measuring stick closest to that face’s own stacks. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> covers how it was fitted. The regular face spreads by about 12 µm and the italic by a little more. The Bleed axis sets the strength of that look in percent: 100 is what the cards show, 25 leaves a quarter of it, and 125 is a quarter stronger than measured.</p>
+      <p>Every face has a print look, the ink spread and corner rounding that draw the measuring stick closest to that face’s own stacks. <a href={href('/notes/rare-letters/')}>Letters printed too few times</a> covers how it was fitted. The regular face spreads by about 12 µm and the italic by a little more. The Bleed axis sets the strength of that look from 0 to 100: 75 is what the cards show, 0 leaves a quarter of it, and 100 is a quarter stronger than measured.</p>
       <p>Measured against the measuring stick’s sharp outline, the look does most of its work at the corners. Ink fills the inside of a sharp corner and rounds off the outside of one, and the sharper the corner, the more it changes.</p>
       <div class="mid scroll">
         <table>
@@ -32,7 +32,7 @@ const n = note('/notes/axes/');
         </table>
       </div>
       <p>One look per face doesn’t fit every corner. In the regular face it fills the sharpest inner corners about 10 µm further than they print, and in the italic it leaves outer corners 7 to 12 µm less round. I think that’s close enough for an axis whose job is to show the look, not to replace the traces.</p>
-      <p>The masters sit at 25, 50, 100 and 125. A glyph that hasn’t been traced yet starts from the synthetic baseline, the measuring stick drawn at 25, and each step up draws the rest of the look on it and moves the same points onto the new edge. At 100 those glyphs land a median 1.5 µm from the look’s edge in the regular and 1.2 µm in the italic, under the 1.9 µm it takes to read that edge from its grid at all. A traced glyph is its trace at 100 and moves by the change the look makes at the other strengths. Where the look closes a slit or pinches two strokes together, the points can’t follow, so 8 glyphs stop at 100 and keep that shape up to 125.</p>
+      <p>The masters sit at 0, 25, 75 and 100. A glyph that hasn’t been traced yet starts from the synthetic baseline, the measuring stick drawn at 0, and each step up draws the rest of the look on it and moves the same points onto the new edge. At 75 those glyphs land a median 1.5 µm from the look’s edge in the regular and 1.2 µm in the italic, under the 1.9 µm it takes to read that edge from its grid at all. A traced glyph is its trace at 75 and moves by the change the look makes at the other strengths. Where the look closes a slit or pinches two strokes together, the points can’t follow, so 8 glyphs stop at 75 and keep that shape up to 100.</p>
     </section>
 
     <section class="flow" aria-labelledby="opsz">
@@ -63,7 +63,7 @@ const n = note('/notes/axes/');
       <p>What I built instead grows each glyph’s own regular outline. The measuring stick’s bold says how far: its stems are 30 units heavier each side and its horizontal strokes only 5, so the grown outline moves six times further across than up and down. Growing evenly shuts the small counters, the eye of a and e down to a quarter of their area, where the designed bold keeps three quarters. Growing unevenly keeps them about as open as the designed bold does. Every point moves out along the mitre of its neighbours, outer corners are cut at twice the offset, the notch of a V or the crotch of an n closes up where its grown sides cross, and the baseline, x-height, cap height and descender stay where they were.</p>
       <div class="mid scroll">
         <table>
-          <caption>Distance from the measuring stick’s bold on a to z, A to Z and 0 to 9, regular face at Bleed 25</caption>
+          <caption>Distance from the measuring stick’s bold on a to z, A to Z and 0 to 9, regular face at Bleed 0</caption>
           <thead><tr><th>Outline</th><th class="r">Median µm</th><th class="r">Lowercase µm</th></tr></thead>
           <tbody>
             <tr><td>The regular as it is</td><td class="r">75</td><td class="r">75</td></tr>
@@ -72,18 +72,18 @@ const n = note('/notes/axes/');
         </table>
       </div>
       <p>The grown n stem is 146 units against the designed bold’s 145. Most of what’s left is design rather than weight: the bold is wider set, its serifs are drawn heavier, and its figures change shape entirely, which is why the lowercase lands closest. The italic has nothing to measure a 700 against, since the only heavier italic in the measuring stick is a semibold.</p>
-      <p>The bold also does something to Bleed. Its counters and notches are narrower, so the print look shuts them sooner, and many glyphs stop bleeding well before 125.</p>
+      <p>The bold also does something to Bleed. Its counters and notches are narrower, so the print look shuts them sooner, and many glyphs stop bleeding well before 100.</p>
       <div class="mid scroll">
         <table>
           <caption>Glyphs that stop following Bleed at the top weight, regular and italic</caption>
-          <thead><tr><th>Top weight</th><th class="r">Before 125</th><th class="r">At 25</th></tr></thead>
+          <thead><tr><th>Top weight</th><th class="r">Before 100</th><th class="r">At 0</th></tr></thead>
           <tbody>
             <tr><td>600</td><td class="r">45 and 54</td><td class="r">5 and 13</td></tr>
             <tr><td>700</td><td class="r">63 and 70</td><td class="r">14 and 25</td></tr>
           </tbody>
         </table>
       </div>
-      <p>A glyph that stops at 25 doesn’t change with Bleed at all at that weight, and I think that misses the point of this font. So the axis now tops out at a semibold, 600, with the outline grown two thirds as far. It still reads as a heavier weight, and only 5 regular and 13 italic glyphs stop at 25. The site is set in it, so the site name and the table headings use the grown semibold. The fonts roughly double in size, and the top master is still a weight no card has printed, which makes it synthetic in a way the rest of the font isn’t.</p>
+      <p>A glyph that stops at 0 doesn’t change with Bleed at all at that weight, and I think that misses the point of this font. So the axis now tops out at a semibold, 600, with the outline grown two thirds as far. It still reads as a heavier weight, and only 5 regular and 13 italic glyphs stop at 0. The site is set in it, so the site name and the table headings use the grown semibold. The fonts roughly double in size, and the top master is still a weight no card has printed, which makes it synthetic in a way the rest of the font isn’t.</p>
     </section>
 
     <section class="flow" aria-labelledby="slant">
@@ -96,7 +96,7 @@ const n = note('/notes/axes/');
 
     <section class="flow" aria-labelledby="now">
       <h2 id="now">Where the font stands now</h2>
-      <p>Nomicon Rules ships with Bleed from 25 to 125 and Weight from 400 to 600, in a regular and an italic. Bleed is measured, and weight is grown from the measured outlines, about 34 µm from a designed bold on the lowercase. Optical size waits on more cards, and slant isn’t coming. You can try both axes that shipped on <a href={href('/typeset/')}>Typeset</a>, and <a href={href('/bleed/')}>Bleed</a> shows the look close up.</p>
+      <p>Nomicon Rules ships with Bleed from 0 to 100 and Weight from 400 to 600, in a regular and an italic. Bleed is measured, and weight is grown from the measured outlines, about 34 µm from a designed bold on the lowercase. Optical size waits on more cards, and slant isn’t coming. You can try both axes that shipped on <a href={href('/typeset/')}>Typeset</a>, and <a href={href('/bleed/')}>Bleed</a> shows the look close up.</p>
     </section>
   </div>
 </Page>

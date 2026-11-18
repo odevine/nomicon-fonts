@@ -20,7 +20,7 @@ export function previewFonts(base: string) {
       const r = await fetch(`${base}nomicon-rules.json`);
       if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) return null;
       const info = await r.json();
-      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [100, 100, 100], weight: info.axes?.wght };
+      const out: Preview = { family: {}, chars: {}, urls: {}, bleed: info.axes?.BLED ?? [75, 75, 75], weight: info.axes?.wght };
       for (const [face, file] of Object.entries(info.faces) as [Face, string][]) {
         const url = `${base}${file}`;
         const f = new FontFace(FAMILY[face], `url("${url}")`);
@@ -79,7 +79,7 @@ export function weightSlider(range: [number, number, number], id: string, onInpu
 export const weight = () => +(getComputedStyle(document.documentElement).getPropertyValue('--wght') || 400);
 
 /** The current Bleed value */
-export const bleed = () => +(getComputedStyle(document.documentElement).getPropertyValue('--bled') || 100);
+export const bleed = () => +(getComputedStyle(document.documentElement).getPropertyValue('--bled') || 75);
 
 const fontData = new Map<string, Promise<string>>();
 

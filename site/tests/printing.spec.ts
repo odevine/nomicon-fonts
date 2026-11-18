@@ -13,10 +13,10 @@ test('the Bleed figure draws the font and its slider sets the strength', async (
   await expect(page.locator('.bleed-fig text')).toHaveText('x');
   await expect(page.locator('.bleed-fig .bf-layers')).toHaveCount(0);
   const slider = page.locator('#bf-bled');
-  await expect(slider).toHaveAttribute('min', '25');
-  await expect(slider).toHaveAttribute('max', '125');
-  await slider.fill('40');
-  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.bf-live')!).fontVariationSettings)).toContain('40');
+  await expect(slider).toHaveAttribute('min', '0');
+  await expect(slider).toHaveAttribute('max', '100');
+  await slider.fill('30');
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.bf-live')!).fontVariationSettings)).toContain('30');
 });
 
 test('the corner figures and numbers come from corners.json', async ({ page }) => {

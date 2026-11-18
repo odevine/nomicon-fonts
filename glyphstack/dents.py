@@ -1,12 +1,12 @@
 """How much more an outline wiggles at one Bleed than at another, glyph by glyph, from a variable font
 
 An outline turns through much the same angles at every Bleed when the print look only rounds its corners and moves
-its edges, so a dent shows up as turning the outline does at 25 and not at 100. Two numbers measure it, both read
+its edges, so a dent shows up as turning the outline does at 0 and not at 75. Two numbers measure it, both read
 along the outline every SPACING units. The first is the outline's absolute turning in degrees, each lobe of one sign
 counted as its net turn so that jitter under LOBE_DEG cancels. The second is the count of inflections, where the
 curvature changes sign between lobes that turn more than LOBE_DEG
 
-    python -m glyphstack.dents build/fonts/NomiconRules[BLED].ttf --at 25 --against 100
+    python -m glyphstack.dents build/fonts/NomiconRules[BLED].ttf --at 0 --against 75
 """
 import argparse
 
@@ -137,7 +137,7 @@ def outlines(font, bleed, names=None):
     return out
 
 
-def compare(font, at=25, against=100, names=None):
+def compare(font, at=0, against=75, names=None):
     """{glyph name: (extra turning, extra inflections)} of each simple glyph at Bleed at over against"""
     a, b = outlines(TTFont(font), at, names), outlines(TTFont(font), against, names)
     out = {}
@@ -150,8 +150,8 @@ def compare(font, at=25, against=100, names=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("font", nargs="+")
-    ap.add_argument("--at", type=float, default=25)
-    ap.add_argument("--against", type=float, default=100)
+    ap.add_argument("--at", type=float, default=0)
+    ap.add_argument("--against", type=float, default=75)
     ap.add_argument("--glyphs", help="comma separated glyph names, all simple glyphs by default")
     ap.add_argument("--top", type=int, default=20)
     a = ap.parse_args()

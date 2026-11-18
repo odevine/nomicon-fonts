@@ -1,4 +1,4 @@
-"""The synthetic font baseline, each face of the measuring stick drawn at a Bleed of 25, which glyphstack.fontbuild builds the fonts from
+"""The synthetic font baseline, each face of the measuring stick drawn at a Bleed of 0, a quarter of the print look, which glyphstack.fontbuild builds the fonts from
 
 It stands in for the glyphs that have too few scanned instances until more cards are scanned. Its glyphs are built the
 way fontbuild builds its masters, from the session's traces and the measuring stick's outlines with a quarter of the
@@ -14,7 +14,7 @@ from pathlib import Path
 from . import font as fnt
 from . import fontbuild, log, target
 
-BLEED = 25
+BLEED = 0
 
 
 def make(font, traces, face, family, style, chars, out):

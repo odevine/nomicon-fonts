@@ -182,7 +182,7 @@ hero-stack { display: block; }
 .glyphmap small.n { position: absolute; top: 0.5rem; left: 0.65rem; height: auto; line-height: 1; font-size: 0.75rem; }
 .glyphmap .slot { display: block; height: 4.5rem; }
 /* glyphs drawn from the site's font follow the Bleed slider */
-.preview-glyph text, .set-svg .font text { fill: var(--ink); font-variation-settings: 'BLED' var(--bled, 100), 'wght' var(--wght, 400); }
+.preview-glyph text, .set-svg .font text { fill: var(--ink); font-variation-settings: 'BLED' var(--bled, 75), 'wght' var(--wght, 400); }
 .glyphmap li.built svg.preview-glyph { display: block; margin: 0 auto; opacity: 0.4; }
 glyph-preview { display: block; }
 .preview-note { background: var(--fill); border-radius: var(--r-md); padding: 0.9rem 1.2rem; margin: 1rem 0; }

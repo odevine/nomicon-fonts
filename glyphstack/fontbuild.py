@@ -1,11 +1,12 @@
 """Variable fonts of each face of a session with a Bleed axis, built from its traces and the synthetic font baseline
 
-Bleed is the strength of the face's print look in percent, the ink spread and rounding measured on its traced
-stacks, which fill in sharp inner corners and round off outer ones. At 100 every glyph is as the session traced or
-built it, at 25 a quarter of the print look is left and at 125 it is a quarter stronger. The synthetic font baseline,
-which glyphstack.baseline makes, is each face drawn at a Bleed of 25 and is the lowest master as it is. A glyph with
-no stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
-each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
+Bleed sets the strength of the face's print look, the ink spread and rounding measured on its traced stacks, which
+fill in sharp inner corners and round off outer ones. It runs from 0 to 100 as the Google Fonts axis registry has
+it, each step a hundredth of the measured look. At 75, the default, every glyph is as the session traced or built
+it, at 0 a quarter of the print look is left and at 100 it is a quarter stronger. The synthetic font baseline, which
+glyphstack.baseline makes, is each face drawn at a Bleed of 0 and is the lowest master as it is. A glyph with no
+stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
+each strength. A traced glyph keeps its trace at 75 and moves by the change the print look makes to its baseline
 outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
 The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed. With --weight
 the fonts also have a Weight axis from 400 to a semibold at 600, or to the weight given, each glyph's regular outline grown with the same points
@@ -15,6 +16,7 @@ the fonts also have a Weight axis from 400 to a semibold at 600, or to the weigh
 """
 import argparse
 import json
+import math
 import re
 import unicodedata
 from pathlib import Path
@@ -29,19 +31,23 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.otlLib.builder import buildStatTable
 from fontTools.pens.basePen import BasePen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
-from fontTools.ttLib import TTFont
+from fontTools.ttLib import TTFont, newTable
+from fontTools.ttLib.tables import ttProgram as tt
+from fontTools.ttLib.tables._g_l_y_f import OVERLAP_COMPOUND, flagOverlapSimple
 from fontTools.varLib.instancer import instantiateVariableFont
 from scipy.ndimage import gaussian_filter1d, map_coordinates
 from scipy.spatial import cKDTree
 
 from . import font as fnt
-from . import fontfit, log, styles, target
+from . import features, fontfit, log, styles, target
 from .contours import UM_PER_PX, contours_at, sym_dev
 
 # past a quarter more than measured the look closes more slits than a fixed set of points can follow
-AXIS = dict(tag="BLED", name="Bleed", minimum=25, default=100, maximum=125)
+AXIS = dict(tag="BLED", name="Bleed", minimum=0, default=75, maximum=100)
+# Bleed 0 leaves a quarter of the print look, so the look's strength in percent is the Bleed plus this
+OFFSET = 25
 # strengths between these interpolate to within about 1 µm of the look drawn at them
-MASTERS = (25, 50, 100, 125)
+MASTERS = (0, 25, 75, 100)
 # the output's units per em as a multiple of the measuring stick's, since one unit of a 1000 unit em is about 3 µm
 # at the printed size, coarser than the 1 µm the masters are fitted to
 SCALE = 4
@@ -67,7 +73,25 @@ WEIGHT = dict(tag="wght", name="Weight", minimum=400, default=400, maximum=700)
 # how far the bold grows each side in measuring stick units, across and up and down, the measuring stick's bold
 # stems being 30 wider each side than its regular and its horizontal strokes 5
 BOLD = dict(x=30.0, y=5.0)
-WEIGHT_NAMES = {500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold"}
+WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black"}
+# the release's version, written to the name table and the head table, below 1.000 while more cards are scanned
+VERSION = "0.100"
+COPYRIGHT = "Copyright 2026 The Nomicon Fonts Project Authors"
+LICENSE = ("This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with "
+           "a FAQ at: https://openfontlicense.org")
+LICENSE_URL = "https://openfontlicense.org"
+VENDOR = "NONE"
+# the licence's full text, copied beside every font written
+LICENSE_FILE = Path(__file__).resolve().parents[1] / "OFL.txt"
+# the accent below each letter takes, where the measuring stick composes it with the other one
+ACCENT_BELOW = {"Ş": "cedilla", "ş": "cedilla", "Ţ": "cedilla", "ţ": "cedilla",
+                "Ș": "commaaccent", "ș": "commaaccent", "Ț": "commaaccent", "ț": "commaaccent"}
+BELOW_CHAR = {"cedilla": "¸", "commaaccent": None}
+
+
+def strength(bleed):
+    """The print look's strength at a Bleed, 1 being the look as measured"""
+    return (bleed + OFFSET) / 100
 
 
 def set_top_weight(top):
@@ -888,10 +912,27 @@ def char_name(ch):
 
 
 def base_bleed(font):
-    """The Bleed a source font was saved at and its units per measuring stick unit, 0 and 1 for the measuring stick itself"""
+    """The strength of print look a source font was saved with and its units per measuring stick unit, 0 and 1 for the measuring stick itself
+
+    A static font this module saved names the strength in percent in its family, so "Bleed 25" is a quarter of the
+    look, which is Bleed 0 on the axis
+    """
     family = font["name"].getDebugName(1) if "name" in font else None
     m = re.search(r"Bleed (\d+(?:\.\d+)?)$", family or "")
     return (float(m.group(1)) / 100, SCALE) if m else (0.0, 1)
+
+
+def below_accent(font, ch, parts, k):
+    """A composite's parts with the cedilla and the comma below each where ACCENT_BELOW puts it, the swapped accent centred where the other was"""
+    want = ACCENT_BELOW.get(ch)
+    out = []
+    for p in parts:
+        other = p["glyph"] in BELOW_CHAR and p["glyph"] != want and want in font["hmtx"].metrics
+        if want and other:
+            dx = (font["hmtx"][p["glyph"]][0] - font["hmtx"][want][0]) / 2 / k
+            p = dict(p, char=BELOW_CHAR[want], glyph=want, offset=[p["offset"][0] + dx, p["offset"][1]])
+        out.append(p)
+    return out
 
 
 def face_glyphs(font, traces, face, chars, weight=False):
@@ -909,9 +950,9 @@ def face_glyphs(font, traces, face, chars, weight=False):
         raise SystemExit(f"the {face} face has no glyph built with its print look in traces.json")
     look = looks[0]
     shared = next(e["p"] for k, e in traces.items() if styles.style_of(k) == face and "p" in e)
-    ts = [m / 100 for m in MASTERS]
+    ts = [strength(m) for m in MASTERS]
     if t0 > min(ts):
-        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS[0]}")
+        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100 - OFFSET:g}, past the lowest master {MASTERS[0]}")
     want, cmap = {}, {}
     taken = {char_name(ch) for ch in chars}
     weights = 2 if weight else 1
@@ -941,7 +982,7 @@ def face_glyphs(font, traces, face, chars, weight=False):
             adv[gname], made[gname] = wider(font["hmtx"][font.getBestCmap()[ord(ch)]][0] / k, 0), "empty"
             continue
         if e and e.get("parts"):
-            parts = [(need(p["char"], p["glyph"]), p["offset"]) for p in e["parts"]]
+            parts = [(need(p["char"], p["glyph"]), p["offset"]) for p in below_accent(font, ch, e["parts"], k)]
             todo += [n for n, _ in parts]
             glyphs[gname] = [composite(parts)] * len(ts) * weights
             adv[gname], made[gname] = wider(e["adv"]), e["built"]
@@ -962,7 +1003,7 @@ def face_glyphs(font, traces, face, chars, weight=False):
             bold = embolden(rc, heights)
             more, held_bold = standins(bold, joints, Placed(bold, shared), look, ts, t0=t0)
             if held_bold is not None:
-                log.log.warning("%s %s bold stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held_bold * 100))
+                log.log.warning("%s %s bold stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held_bold * 100 - OFFSET))
         made[gname] = "outline"
         if e and not e.get("built"):
             trace = parse_trace(e["trace"])
@@ -972,10 +1013,24 @@ def face_glyphs(font, traces, face, chars, weight=False):
         elif weight:
             masters = masters + more
         if held is not None:
-            log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
+            log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100 - OFFSET))
         glyphs[gname] = quadratic(masters)
         adv[gname] = wider(e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k)
     return glyphs, cmap, adv, made
+
+
+def notdef_box(width, height):
+    """A hollow box for .notdef, outer contour clockwise and inner counterclockwise as TrueType fills them"""
+    side, stroke = round(width * 0.1), round(width * 0.08)
+    pen = TTGlyphPen(None)
+    for x0, y0, x1, y1, cw in ((side, 0, width - side, height, True), (side + stroke, stroke, width - side - stroke, height - stroke, False)):
+        pts = [(x0, y0), (x0, y1), (x1, y1), (x1, y0)]
+        pts = pts if cw else pts[::-1]
+        pen.moveTo(pts[0])
+        for p in pts[1:]:
+            pen.lineTo(p)
+        pen.closePath()
+    return pen.glyph()
 
 
 def master_font(font, face, glyphs, cmap, adv, i, family, style):
@@ -984,22 +1039,26 @@ def master_font(font, face, glyphs, cmap, adv, i, family, style):
     fb = FontBuilder(round(font["head"].unitsPerEm * SCALE / k), isTTF=True)
     fb.setupGlyphOrder(order)
     fb.setupCharacterMap(cmap)
-    fb.setupGlyf({".notdef": TTGlyphPen(None).glyph()} | {n: g[i] for n, g in glyphs.items()})
+    os2, hhea = font["OS/2"], font["hhea"]
+    m = lambda v: round(v * SCALE / k)
+    notdef = round(font["hmtx"][".notdef"][0] / k * SCALE)
+    fb.setupGlyf({".notdef": notdef_box(notdef, m(os2.sCapHeight))} | {n: g[i] for n, g in glyphs.items()})
     glyf = fb.font["glyf"]
     metrics = {}
     for n in order:
         g = glyf[n]
         g.recalcBounds(glyf)
-        metrics[n] = (round(adv[n][i] * SCALE if n in adv else font["hmtx"][".notdef"][0] / k * SCALE), getattr(g, "xMin", 0))
+        metrics[n] = (round(adv[n][i] * SCALE) if n in adv else notdef, getattr(g, "xMin", 0))
     fb.setupHorizontalMetrics(metrics)
-    os2, hhea = font["OS/2"], font["hhea"]
-    m = lambda v: round(v * SCALE / k)
-    fb.setupHorizontalHeader(ascent=m(hhea.ascent), descent=m(hhea.descent), lineGap=m(hhea.lineGap))
+    # the line gap is split between the ascender and the descender, which spaces lines the same in browsers
+    gap = m(os2.sTypoLineGap)
+    ascent, descent = m(os2.sTypoAscender) + gap // 2, m(os2.sTypoDescender) - (gap - gap // 2)
+    fb.setupHorizontalHeader(ascent=ascent, descent=descent, lineGap=0)
     italic = face != styles.primary()
-    fb.setupNameTable(dict(familyName=family, styleName=style, version="Version 0.100", psName=f"{family.replace(' ', '')}-{style}"))
-    fb.setupOS2(version=4, sTypoAscender=m(os2.sTypoAscender), sTypoDescender=m(os2.sTypoDescender), sTypoLineGap=m(os2.sTypoLineGap),
+    fb.setupNameTable(dict(familyName=family, styleName=style, version=f"Version {VERSION}", psName=f"{family.replace(' ', '')}-{style}"), mac=False)
+    fb.setupOS2(version=4, sTypoAscender=ascent, sTypoDescender=descent, sTypoLineGap=0,
                 usWinAscent=m(os2.usWinAscent), usWinDescent=m(os2.usWinDescent), sxHeight=m(os2.sxHeight),
-                sCapHeight=m(os2.sCapHeight), fsSelection=(1 << 0 if italic else 1 << 6) | (1 << 7), achVendID="NONE")
+                sCapHeight=m(os2.sCapHeight), fsSelection=(1 << 0 if italic else 1 << 6) | (1 << 7), achVendID=VENDOR, fsType=0)
     fb.setupPost(italicAngle=font["post"].italicAngle)
     fb.font["head"].macStyle = 2 if italic else 0
     return fb.font
@@ -1031,60 +1090,178 @@ def kern_pairs(font):
     return {k: v for k, v in out.items() if v}
 
 
-def add_kerning(font, source, factor):
-    """Adds the source font's kerning between the characters both fonts draw to font, each value times factor, and returns how many pairs it kerns"""
+def kerning(font, source, factor):
+    """{(first glyph, second glyph): value} of the source font's kerning between the characters both fonts draw, each value times factor and named as font names them"""
     chars = {g: c for c, g in source.getBestCmap().items()}
     names = font.getBestCmap()
     pairs = {}
     for (a, b), v in kern_pairs(source).items():
         if a in chars and b in chars and chars[a] in names and chars[b] in names:
             pairs[(names[chars[a]], names[chars[b]])] = round(v * factor)
-    pairs = {k: v for k, v in pairs.items() if v}
+    return {k: v for k, v in pairs.items() if v}
+
+
+def kern_lines(pairs):
+    return "".join(f"  pos \\{a} \\{b} {v};\n" for (a, b), v in sorted(pairs.items()))
+
+
+def add_kerning(font, source, factor):
+    """Adds the source font's kerning between the characters both fonts draw to font, each value times factor, and returns how many pairs it kerns"""
+    pairs = kerning(font, source, factor)
     if pairs:
-        lines = "".join(f"  pos \\{a} \\{b} {v};\n" for (a, b), v in sorted(pairs.items()))
-        addOpenTypeFeaturesFromString(font, f"languagesystem DFLT dflt;\nlanguagesystem latn dflt;\nfeature kern {{\n{lines}}} kern;\n")
+        addOpenTypeFeaturesFromString(font, f"languagesystem DFLT dflt;\nlanguagesystem latn dflt;\nfeature kern {{\n{kern_lines(pairs)}}} kern;\n")
     return len(pairs)
+
+
+def add_extras(probe, glyphs, adv, n):
+    """Adds the glyphs the features substitute in to glyphs and adv, each a composite of one glyph at an offset in every master"""
+    for name, (src, dx, dy, dadv) in features.extras(probe).items():
+        pen = TTGlyphPen(AnyGlyph())
+        pen.addComponent(src, (1, 0, 0, 1, dx, dy))
+        glyphs[name] = [pen.glyph()] * n
+        adv[name] = [a + dadv / SCALE for a in adv[src]]
+
+
+def weight_styles(italic):
+    """[(style name, weight)] of the named instances on the Weight axis, every standard weight it reaches"""
+    out = []
+    for w in range(100, 1000, 100):
+        if WEIGHT["minimum"] <= w <= WEIGHT["maximum"]:
+            name = WEIGHT_NAMES[w]
+            out.append(((name + " Italic" if name != "Regular" else "Italic") if italic else name, w))
+    return out
+
+
+def instances(ds, family, italic, weight):
+    """Named instances at the default Bleed, the look as measured, the face's Regular or Italic and with weight each standard weight the axis reaches"""
+    for style, w in weight_styles(italic) if weight else [("Italic" if italic else "Regular", None)]:
+        inst = InstanceDescriptor()
+        inst.familyName, inst.styleName = family, style
+        inst.postScriptFontName = f"{family.replace(' ', '')}-{style.replace(' ', '')}"
+        inst.location = {AXIS["name"]: AXIS["default"]} | ({WEIGHT["name"]: w} if weight else {})
+        ds.addInstance(inst)
+
+
+def name_records(vf, family, style, italic):
+    """The name table's records for release, copyright, names, version, licence and the variation PostScript prefix, Windows records only"""
+    name = vf["name"]
+    ps = family.replace(" ", "")
+    full = f"{family} {style}"
+    for nid, value in {0: COPYRIGHT, 1: family, 2: style, 3: f"{VERSION};{VENDOR};{ps}-{style}", 4: full, 5: f"Version {VERSION}",
+                       6: f"{ps}-{style}", 13: LICENSE, 14: LICENSE_URL, 25: ps + ("Italic" if italic else "")}.items():
+        name.setName(value, nid, 3, 1, 0x409)
+    name.removeNames(platformID=1)
+    vf["head"].fontRevision = float(VERSION)
+
+
+def finish(vf, italic, top, bottom):
+    """Release settings: installable embedding, code pages, caret slope, smart dropout with gasp for an unhinted font, overlap flags, and Windows metrics that clear the highest and lowest ink"""
+    os2, hhea = vf["OS/2"], vf["hhea"]
+    os2.fsType = 0
+    os2.recalcCodePageRanges(vf)
+    os2.usWinAscent, os2.usWinDescent = max(0, math.ceil(top)), max(0, math.ceil(-bottom))
+    upm = vf["head"].unitsPerEm
+    hhea.caretSlopeRise, hhea.caretSlopeRun = upm, round(upm * math.tan(math.radians(-vf["post"].italicAngle)))
+    if not italic:
+        hhea.caretSlopeRise, hhea.caretSlopeRun = 1, 0
+    gasp = newTable("gasp")
+    gasp.version, gasp.gaspRange = 1, {0xFFFF: 0x000F}
+    vf["gasp"] = gasp
+    # turns on smart dropout control, which an unhinted TrueType font needs to keep thin strokes at small sizes
+    prep = newTable("prep")
+    prep.program = tt.Program()
+    prep.program.fromAssembly(["PUSHW[]", "511", "SCANCTRL[]", "PUSHB[]", "4", "SCANTYPE[]"])
+    vf["prep"] = prep
+    # glyphs whose contours or components overlap, as filled notches and accents touching their letters do, render
+    # without seams where the renderer is told so
+    for n in vf.getGlyphOrder():
+        g = vf["glyf"][n]
+        if g.isComposite():
+            g.components[0].flags |= OVERLAP_COMPOUND
+        elif g.numberOfContours > 0:
+            g.flags[0] |= flagOverlapSimple
+
+
+def extremes(fonts):
+    """The highest and lowest point of any glyph in any of the fonts, accents included"""
+    top, bottom = 0, 0
+    for f in fonts:
+        glyf = f["glyf"]
+        for n in f.getGlyphOrder():
+            g = glyf[n]
+            g.recalcBounds(glyf)
+            if hasattr(g, "yMax") and g.numberOfContours:
+                top, bottom = max(top, g.yMax), min(bottom, g.yMin)
+    return top, bottom
 
 
 def build_face(font, traces, face, family, style, chars, out, weight=False):
     """Writes one face's variable font, with a Weight axis when weight is set, and returns its path and how each glyph was made"""
     glyphs, cmap, adv, made = face_glyphs(font, traces, face, chars, weight)
     axes = [AXIS] + ([WEIGHT] if weight else [])
+    locs = sources(weight)
+    default = locs.index({ax["name"]: ax["default"] for ax in axes})
+    add_extras(master_font(font, face, glyphs, cmap, adv, default, family, style), glyphs, adv, len(locs))
     ds = DesignSpaceDocument()
     for ax in axes:
         ds.addAxis(AxisDescriptor(**ax))
-    for i, loc in enumerate(sources(weight)):
+    masters = []
+    for i, loc in enumerate(locs):
         src = SourceDescriptor()
         src.font = master_font(font, face, glyphs, cmap, adv, i, family, style)
+        masters.append(src.font)
         src.location, src.name = loc, f"{style} " + " ".join(f"{k.lower()} {v}" for k, v in loc.items())
         ds.addSource(src)
-    inst = InstanceDescriptor()
-    inst.familyName, inst.styleName, inst.location = family, style, {ax["name"]: ax["default"] for ax in axes}
-    ds.addInstance(inst)
-    vf, _, _ = varLib.build(ds)
     italic = face != styles.primary()
+    instances(ds, family, italic, weight)
+    vf, _, _ = varLib.build(ds)
+    # the named instances sit at the default, so STAT names it, elided from style names
     stat = [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)])]
     if weight:
-        stat.append(dict(tag=WEIGHT["tag"], name=WEIGHT["name"], values=[dict(value=400, name="Regular", flags=0x2) | (dict(linkedValue=700) if WEIGHT["maximum"] == 700 else {}), dict(value=WEIGHT["maximum"], name=WEIGHT_NAMES.get(WEIGHT["maximum"], str(WEIGHT["maximum"])))]))
+        values = [dict(value=w, name=WEIGHT_NAMES[w]) | (dict(flags=0x2) if w == 400 else {}) for _, w in weight_styles(False)]
+        if WEIGHT["maximum"] not in WEIGHT_NAMES:
+            values.append(dict(value=WEIGHT["maximum"], name=str(WEIGHT["maximum"])))
+        if WEIGHT["maximum"] >= 700:
+            values[[v["value"] for v in values].index(400)]["linkedValue"] = 700
+        stat.append(dict(tag=WEIGHT["tag"], name=WEIGHT["name"], values=values))
     buildStatTable(vf, stat + [dict(tag="ital", name="Italic", values=[dict(value=1, name="Italic")] if italic else [dict(value=0, name="Roman", flags=0x2, linkedValue=1)])])
-    log.log.info("%s %s kerns %d pairs", family, style, add_kerning(vf, font, SCALE / base_bleed(font)[1]))
+    pairs = kerning(vf, font, SCALE / base_bleed(font)[1])
+    addOpenTypeFeaturesFromString(vf, features.text(masters[default], kern_lines(pairs)))
+    log.log.info("%s %s kerns %d pairs", family, style, len(pairs))
+    name_records(vf, family, style, italic)
+    finish(vf, italic, *extremes(masters))
     path = out / (family.replace(" ", "") + ("-Italic" if italic else "") + f"[{','.join(ax['tag'] for ax in axes)}].ttf")
     vf.save(path)
     return path, made
 
 
+def share_metrics(paths):
+    """Gives every face the first face's line metrics and Windows metrics that clear the ink of all of them"""
+    fonts = [TTFont(p) for p in paths]
+    first = fonts[0]
+    top = max(f["OS/2"].usWinAscent for f in fonts)
+    bottom = max(f["OS/2"].usWinDescent for f in fonts)
+    for f, p in zip(fonts, paths):
+        os2, hhea = f["OS/2"], f["hhea"]
+        for attr in ("sTypoAscender", "sTypoDescender", "sTypoLineGap"):
+            setattr(os2, attr, getattr(first["OS/2"], attr))
+        hhea.ascent, hhea.descent, hhea.lineGap = first["hhea"].ascent, first["hhea"].descent, first["hhea"].lineGap
+        os2.usWinAscent, os2.usWinDescent = top, bottom
+        f.save(p)
+
+
 def static(path, bleed, out=None):
-    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength"""
+    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength of print look it carries in percent, which base_bleed reads back"""
     font = instantiateVariableFont(TTFont(path), {AXIS["tag"]: bleed})
     name = font["name"]
-    family, style = name.getDebugName(1) + f" Bleed {bleed:g}", name.getDebugName(2)
+    family, style = name.getDebugName(1) + f" Bleed {bleed + OFFSET:g}", name.getDebugName(2)
     if "STAT" in font:
         del font["STAT"]
     ps = family.replace(" ", "") + "-" + style.replace(" ", "")
-    for nid, value in {1: family, 2: style, 3: f"{name.getDebugName(5)};{ps}", 4: f"{family} {style}", 6: ps}.items():
+    for nid, value in {1: family, 2: style, 3: f"{name.getDebugName(5).removeprefix('Version ')};{VENDOR};{ps}", 4: f"{family} {style}", 6: ps}.items():
         name.setName(value, nid, 3, 1, 0x409)
-    name.removeNames(nameID=16)
-    name.removeNames(nameID=17)
+    for nid in (16, 17, 25):
+        name.removeNames(nameID=nid)
     out = Path(out or Path(path).parent) / (ps + ".ttf")
     font.save(out)
     return out
@@ -1135,6 +1312,7 @@ def publish(paths, site):
         index["chars"][face] = sorted(font.getBestCmap())
         index["axes"] = {a.axisTag: [a.minValue, a.defaultValue, a.maxValue] for a in font["fvar"].axes}
     (site / "nomicon-rules.json").write_text(json.dumps(index, separators=(",", ":")) + "\n")
+    (site / LICENSE_FILE.name).write_text(LICENSE_FILE.read_text())
 
 
 def main():
@@ -1162,6 +1340,8 @@ def main():
             raise SystemExit(f"{path} is not a synthetic font baseline, make one with glyphstack.baseline")
         built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out, bool(a.weight))
         report(built[face], made, chars)
+    share_metrics(list(built.values()))
+    (out / LICENSE_FILE.name).write_text(LICENSE_FILE.read_text())
     if a.site:
         publish(built, Path(a.site))
 
