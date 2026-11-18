@@ -135,6 +135,7 @@ def test_publish_writes_woff_fonts_and_an_index_for_the_site(tmp_path):
     index = json.loads((tmp_path / "site" / "nomicon-rules.json").read_text())
     assert index["faces"] == {"regular": "nomicon-rules-regular.woff"} and index["axes"] == {"BLED": [25, 100, 125]}
     assert ord("V") in index["chars"]["regular"] and TTFont(tmp_path / "site" / "nomicon-rules-regular.woff").flavor == "woff"
+    assert (tmp_path / "site" / "OFL.txt").read_text().startswith(fontbuild.COPYRIGHT)
 
 
 def test_the_fonts_carry_the_source_kerning_through_the_baseline(tmp_path):

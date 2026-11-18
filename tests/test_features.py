@@ -191,7 +191,8 @@ def test_the_fonts_carry_release_names_installable_embedding_and_smart_dropout(t
     for nid in (0, 1, 2, 3, 4, 5, 6, 13, 14, 25):
         assert name.getName(nid, 3, 1, 0x409), nid
     assert name.getDebugName(4) == "Test Rules Regular" and name.getDebugName(5) == f"Version {fontbuild.VERSION}"
-    assert vf["head"].fontRevision == float(fontbuild.VERSION)
+    # head stores the version as 16.16 fixed point
+    assert abs(vf["head"].fontRevision - float(fontbuild.VERSION)) < 1e-4
     assert vf["OS/2"].fsType == 0 and vf["gasp"].gaspRange == {0xFFFF: 0x000F}
     assert "SCANCTRL" in " ".join(vf["prep"].program.getAssembly())
     assert vf["glyf"][".notdef"].numberOfContours == 2

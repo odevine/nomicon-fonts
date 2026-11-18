@@ -71,13 +71,15 @@ WEIGHT = dict(tag="wght", name="Weight", minimum=400, default=400, maximum=700)
 # stems being 30 wider each side than its regular and its horizontal strokes 5
 BOLD = dict(x=30.0, y=5.0)
 WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black"}
-# the release's version, written to the name table and the head table
-VERSION = "1.000"
-COPYRIGHT = "Copyright 2026 The Nomicon Fonts Project Authors (https://github.com/odevine/nomicon-fonts)"
+# the release's version, written to the name table and the head table, below 1.000 while more cards are scanned
+VERSION = "0.100"
+COPYRIGHT = "Copyright 2026 The Nomicon Fonts Project Authors"
 LICENSE = ("This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with "
            "a FAQ at: https://openfontlicense.org")
 LICENSE_URL = "https://openfontlicense.org"
 VENDOR = "NONE"
+# the licence's full text, copied beside every font written
+LICENSE_FILE = Path(__file__).resolve().parents[1] / "OFL.txt"
 # the accent below each letter takes, where the measuring stick composes it with the other one
 ACCENT_BELOW = {"Ş": "cedilla", "ş": "cedilla", "Ţ": "cedilla", "ţ": "cedilla",
                 "Ș": "commaaccent", "ș": "commaaccent", "Ț": "commaaccent", "ț": "commaaccent"}
@@ -1297,6 +1299,7 @@ def publish(paths, site):
         index["chars"][face] = sorted(font.getBestCmap())
         index["axes"] = {a.axisTag: [a.minValue, a.defaultValue, a.maxValue] for a in font["fvar"].axes}
     (site / "nomicon-rules.json").write_text(json.dumps(index, separators=(",", ":")) + "\n")
+    (site / LICENSE_FILE.name).write_text(LICENSE_FILE.read_text())
 
 
 def main():
@@ -1325,6 +1328,7 @@ def main():
         built[face], made = build_face(font, traces, face, prof.primary.full_name, style_of(prof, face), chars, out, bool(a.weight))
         report(built[face], made, chars)
     share_metrics(list(built.values()))
+    (out / LICENSE_FILE.name).write_text(LICENSE_FILE.read_text())
     if a.site:
         publish(built, Path(a.site))
 
