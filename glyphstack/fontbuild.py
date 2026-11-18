@@ -78,6 +78,14 @@ def set_top_weight(top):
 # how far in grid px a traced outline's move from the measuring stick is smoothed along it, which takes out the jitter
 # of reading the move from a different outline while keeping the change at a filled corner
 SMOOTH_PX = 2.0
+# how far in degrees a straight run's smoothed heading may stray either side of its middle
+RUN_DEG = 8.0
+# the shortest straight run in grid px whose move is held to a line across it
+RUN_PX = 15.0
+# how far in grid px a straight run's heading is smoothed before it is read, so one wobble does not split a run
+RUN_SMOOTH_PX = 3.0
+# how far in grid px a held run eases back into the move beside it
+RUN_BLEND_PX = 16.0
 # points each curve of a traced outline is moved through
 MOVE_SAMPLES = 32
 # the shortest a moved handle may get as a fraction of its length on the trace
@@ -620,6 +628,60 @@ def smooth_along(X, v, sigma):
     return np.stack([np.interp(L[:-1], np.append(s, L[-1]), np.append(even[:, k], even[0, k])) for k in range(v.shape[1])], 1)
 
 
+def straight_runs(X):
+    """[(start, end)] index runs of a closed polyline, end exclusive and past its length where a run wraps, along which
+    its heading smoothed over RUN_SMOOTH_PX stays within RUN_DEG either side, at least RUN_PX long, the longest taken first"""
+    n = len(X)
+    step = np.linalg.norm(np.diff(np.vstack([X, X[:1]]), axis=0), axis=1).sum() / n
+    d = np.roll(X, -1, 0) - np.roll(X, 1, 0)
+    d = gaussian_filter1d(d / np.maximum(np.linalg.norm(d, axis=1), 1e-9)[:, None], RUN_SMOOTH_PX / step, axis=0, mode="wrap")
+    a = np.degrees(np.unwrap(np.arctan2(d[:, 1], d[:, 0])))
+    lap = np.degrees(np.unwrap(np.radians(np.append(a, a[0]))))
+    a = np.concatenate([a, a + lap[-1] - lap[0]])
+    least = int(RUN_PX / step)
+    found = []
+    for s0 in range(0, n, 2):
+        w = a[s0:s0 + n]
+        spread = np.maximum.accumulate(w) - np.minimum.accumulate(w)
+        over = np.flatnonzero(spread > 2 * RUN_DEG)
+        size = over[0] if len(over) else n
+        if size - 1 >= least:
+            found.append((size, s0))
+    used, out = np.zeros(n, bool), []
+    for size, s0 in sorted(found, reverse=True):
+        idx = np.arange(s0, s0 + size) % n
+        if not used[idx].any():
+            used[idx] = True
+            out.append((s0, s0 + size))
+    return out
+
+
+def held_straight(X, m):
+    """The move m of each point of a closed polyline X with its part across each straight run of X held to a line along
+    the run, eased back into the move beside it over RUN_BLEND_PX
+
+    The print look's fill at a corner and the baseline's own lumps both make the move uneven along a stem, which bows
+    an edge the trace draws straight. A line still lets a stem taper"""
+    n = len(X)
+    m = m.copy()
+    step = np.linalg.norm(np.diff(np.vstack([X, X[:1]]), axis=0), axis=1).sum() / n
+    nb = max(1, int(RUN_BLEND_PX / step))
+    ease = np.linspace(0, 1, nb + 2)[1:-1]
+    ease = ease * ease * (3 - 2 * ease)
+    for a, b in straight_runs(X):
+        idx = np.arange(a, b) % n
+        P = X[idx]
+        e = (P[-1] - P[0]) / np.linalg.norm(P[-1] - P[0])
+        across = np.array([-e[1], e[0]])
+        s = (P - P[0]) @ e
+        moved = m[idx] @ across
+        w = np.ones(len(idx))
+        if len(idx) > 2 * nb:
+            w[:nb], w[-nb:] = ease, ease[::-1]
+        m[idx] += ((np.polyval(np.polyfit(s, moved, 1), s) - moved) * w)[:, None] * across
+    return m
+
+
 def turn(v, a):
     """A vector turned by a radians"""
     return np.array([np.cos(a) * v[0] - np.sin(a) * v[1], np.sin(a) * v[0] + np.cos(a) * v[1]])
@@ -628,9 +690,10 @@ def turn(v, a):
 def displaced(trace, at1, att, pl):
     """A traced outline moved by the change the print look makes to the measuring stick outline, from its master at1 to att
 
-    Each place on the trace takes the move of the closest place on at1, smoothed along the trace by SMOOTH_PX. Each
-    joint moves with it and turns its two handles by the same angle, the turn the moved outline makes there, so a
-    smooth joint stays smooth, and each curve's handle lengths are fitted to its moved points
+    Each place on the trace takes the move of the closest place on at1, smoothed along the trace by SMOOTH_PX, held to
+    a line across each straight run of the trace by held_straight and smoothed again. Each joint moves with it and
+    turns its two handles by the same angle, the turn the moved outline makes there, so a smooth joint stays smooth,
+    and each curve's handle lengths are fitted to its moved points
     """
     if att is at1:
         return trace
@@ -643,7 +706,8 @@ def displaced(trace, at1, att, pl):
         n = len(G)
         X = np.array([bez(P, u) for P in G])
         flat = X[:, :-1].reshape(-1, 2)
-        m = smooth_along(flat, at(flat), SMOOTH_PX).reshape(n, MOVE_SAMPLES, 2)
+        m = smooth_along(flat, at(flat), SMOOTH_PX)
+        m = smooth_along(flat, held_straight(flat, m), SMOOTH_PX).reshape(n, MOVE_SAMPLES, 2)
         O = X + np.concatenate([m, np.roll(m[:, :1], -1, axis=0)], 1)
         ang = lambda v: np.arctan2(v[..., 1], v[..., 0])
         # the turn at each joint, the mean of the moved outline's turn just before it and just after it

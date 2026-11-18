@@ -234,3 +234,32 @@ def test_a_traced_glyph_beside_a_filled_notch_keeps_its_smooth_joints_smooth_at_
     # the notch still opens up at 25, where the measuring stick's notch is sharper
     v = lambda b: (lambda pts: pts[(np.abs(pts[:, 0] - 300) < 40) & (pts[:, 1] > 100)][:, 1].min())(points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V"))
     assert v(25) < v(100) - 5
+
+
+def test_a_traced_stem_beside_a_filled_notch_keeps_an_even_width_where_its_baseline_moves_unevenly():
+    trace = fontbuild.parse_trace(curved_v())
+    pl = fontbuild.Placed(fontbuild.design(measuring_stick(), "V"), P)
+
+    def change(q):
+        """The baseline's change, filling the notch and with a short lump along the left stroke's inner side"""
+        notch = 8 * np.exp(-np.sum((q - [300, 240]) ** 2, 1) / (2 * 20 ** 2))
+        lump = 3 * np.exp(-((q[:, 1] - 480) / 25) ** 2 - ((q[:, 0] - 210) / 15) ** 2)
+        return np.stack([lump, notch], 1)
+
+    moved = [[(kind, Q + change(Q)) for kind, Q in c] for c in trace]
+    out = fontbuild.displaced(trace, trace, [fontbuild.closed(c) for c in moved], pl)
+    outline = np.vstack([fontbuild.bez(Q, np.linspace(0, 1, 200)) for _, Q in out[0]])
+
+    def inner(y):
+        """Where the left stroke's inner side crosses height y"""
+        a, b = outline, np.roll(outline, -1, 0)
+        k = (a[:, 1] - y) * (b[:, 1] - y) < 0
+        return float(np.sort(a[k, 0] + (y - a[k, 1]) * (b[k, 0] - a[k, 0]) / (b[k, 1] - a[k, 1]))[1])
+
+    ys = np.linspace(360, 620, 27)
+    x = np.array([inner(y) for y in ys])
+    # the trace draws the side straight, so the baseline's lump stays out of it
+    assert np.ptp(x - np.polyval(np.polyfit(ys, x, 1), ys)) < 0.5
+    # the notch still fills
+    notch = lambda c: min(fontbuild.bez(Q, np.linspace(0, 1, 50))[:, 1].min() for _, Q in c[0] if abs(Q[:, 0].mean() - 300) < 20 and Q[:, 1].min() > 100)
+    assert notch(out) > notch(trace) + 1
