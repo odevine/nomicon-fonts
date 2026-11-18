@@ -186,3 +186,80 @@ def test_the_bold_grows_stems_across_keeps_its_heights_and_widens_the_advance(tm
     # the V's strokes thicken, so the notch between them rises
     middle = lambda f: (lambda v: v[(np.abs(v[:, 0] - 300 - x) < 40) & (v[:, 1] > 100)][:, 1].min())(points(f, "V"))
     assert middle(bold) > middle(instantiateVariableFont(TTFont(path), {"BLED": 100, "wght": 400})) + 20
+
+
+def curved_v():
+    """A trace of the V as cubics, each stroke split at a smooth joint and the acute notch rounded by one curve"""
+    q = lambda *pts: " ".join(f"{x:.1f},{-y:.1f}" for x, y in pts)
+    a, b = np.array([270.0, 260.0]), np.array([330.0, 260.0])
+    straight = lambda p, r: q(p + (r - p) / 3, p + 2 * (r - p) / 3, r)
+    d = "M" + q((0, 700)) + " L" + q((150, 700))
+    for p, r in (((150, 700), (210, 480)), ((210, 480), a)):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " C" + q(a + (15, -55), b + (-15, -55), b)
+    for p, r in ((b, (390, 480)), ((390, 480), (450, 700))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " L" + q((600, 700))
+    for p, r in (((600, 700), (475, 350)), ((475, 350), (350, 0))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    d += " L" + q((250, 0))
+    for p, r in (((250, 0), (125, 350)), ((125, 350), (0, 700))):
+        d += " C" + straight(np.array(p, float), np.array(r, float))
+    return d + "Z"
+
+
+def joint_kinks(font, name, at):
+    """The turn in degrees at the on-curve point of a glyph nearest each of at, from the point before it to the point after it"""
+    glyf = font["glyf"]
+    coords, ends, flags = glyf[name].getCoordinates(glyf)
+    c = np.array(coords, float) / fontbuild.SCALE
+    out = []
+    for q in at:
+        i = int(np.argmin(np.linalg.norm(c - q, axis=1)))
+        a, b = c[i] - c[i - 1], c[(i + 1) % len(c)] - c[i]
+        out.append(abs(np.degrees(np.arctan2(a[0] * b[1] - a[1] * b[0], a @ b))))
+    return out
+
+
+def test_a_traced_glyph_beside_a_filled_notch_keeps_its_smooth_joints_smooth_at_every_bleed(tmp_path):
+    target.use("rules")
+    t = traces() | {"V": dict(trace=curved_v(), adv=620, n=20, p=P)}
+    path, made = fontbuild.build_face(measuring_stick(), t, "regular", "Test Rules", "Regular", list("AV´Á"), tmp_path)
+    assert made["V"] == "traced"
+    # the joints either side of the notch's curve and halfway down each inner side of the strokes
+    joints = [(270, 260), (330, 260), (210, 480), (390, 480)]
+    for b in (25, 50, 125):
+        at = instantiateVariableFont(TTFont(path), {"BLED": b})
+        assert max(joint_kinks(at, "V", joints)) < 1
+    # the notch still opens up at 25, where the measuring stick's notch is sharper
+    v = lambda b: (lambda pts: pts[(np.abs(pts[:, 0] - 300) < 40) & (pts[:, 1] > 100)][:, 1].min())(points(instantiateVariableFont(TTFont(path), {"BLED": b}), "V"))
+    assert v(25) < v(100) - 5
+
+
+def test_a_traced_stem_beside_a_filled_notch_keeps_an_even_width_where_its_baseline_moves_unevenly():
+    trace = fontbuild.parse_trace(curved_v())
+    pl = fontbuild.Placed(fontbuild.design(measuring_stick(), "V"), P)
+
+    def change(q):
+        """The baseline's change, filling the notch and with a short lump along the left stroke's inner side"""
+        notch = 8 * np.exp(-np.sum((q - [300, 240]) ** 2, 1) / (2 * 20 ** 2))
+        lump = 3 * np.exp(-((q[:, 1] - 480) / 25) ** 2 - ((q[:, 0] - 210) / 15) ** 2)
+        return np.stack([lump, notch], 1)
+
+    moved = [[(kind, Q + change(Q)) for kind, Q in c] for c in trace]
+    out = fontbuild.displaced(trace, trace, [fontbuild.closed(c) for c in moved], pl)
+    outline = np.vstack([fontbuild.bez(Q, np.linspace(0, 1, 200)) for _, Q in out[0]])
+
+    def inner(y):
+        """Where the left stroke's inner side crosses height y"""
+        a, b = outline, np.roll(outline, -1, 0)
+        k = (a[:, 1] - y) * (b[:, 1] - y) < 0
+        return float(np.sort(a[k, 0] + (y - a[k, 1]) * (b[k, 0] - a[k, 0]) / (b[k, 1] - a[k, 1]))[1])
+
+    ys = np.linspace(360, 620, 27)
+    x = np.array([inner(y) for y in ys])
+    # the trace draws the side straight, so the baseline's lump stays out of it
+    assert np.ptp(x - np.polyval(np.polyfit(ys, x, 1), ys)) < 0.5
+    # the notch still fills
+    notch = lambda c: min(fontbuild.bez(Q, np.linspace(0, 1, 50))[:, 1].min() for _, Q in c[0] if abs(Q[:, 0].mean() - 300) < 20 and Q[:, 1].min() > 100)
+    assert notch(out) > notch(trace) + 1
