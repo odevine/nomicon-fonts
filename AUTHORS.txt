@@ -1,0 +1,4 @@
+# The Nomicon Fonts Project Authors, for copyright purposes
+# The copyright notice in the fonts and OFL.txt names this list
+
+odevine <https://github.com/odevine>
