@@ -169,6 +169,19 @@ On `full_v1`, measured against the look drawn on the measuring stick itself, eac
 
 **`--weight` adds a Weight axis, `wght`, from 400 to a semibold at 600 grown from the regular, or to the weight given, as in `--weight 700`.** The cards print no bold, so the top master is each glyph's regular outline with its points moved out, mitred at outer corners and closed up where the sides of a notch cross. At 700 the move is 30 measuring stick units across and 5 up and down, the measuring stick bold's own stem growth, and a lower top weight scales it linearly, 20 and 3.3 at 600. Its heights are held at the baseline, x-height, cap height and descender, and its advance grows by twice the move across. The print look is drawn on the top master the same way, and a traced glyph moves by the change the top master makes to its baseline outline, so every master of a glyph keeps the same points. On `full_v1` the regular grown to 700 lands a median 48 µm from the measuring stick's bold, 34 µm on lowercase, against 75 µm for the regular. Its narrower counters close sooner under the print look, so at 600, 45 regular and 54 italic glyphs stop bleeding before 125, and at 700, 63 and 70. The fonts are `NomiconRules[BLED,wght].ttf` and `NomiconRules-Italic[BLED,wght].ttf`, about twice the size.
 
+**Each font carries what a release needs in its tables.** The name table has the copyright, the version, `Version 1.000`, the licence and its URL, and Windows records only. Embedding is installable, `fsType` 0. The fonts are unhinted, so they turn on smart dropout control in `prep` and ask for smoothing at every size in `gasp`. Each named instance sits at Bleed 100: Regular, or Italic, and with `--weight` every standard weight the axis reaches, Regular, Medium and SemiBold at 600. Every glyph is flagged as possibly overlapping, since filled notches cross themselves and some accents touch their letters.
+
+**The faces share one set of line metrics.** The measuring stick's line gap is split between the ascender and the descender, 3180 and −1620 with no gap, which spaces lines as before in browsers. The Windows ascent and descent are the highest and lowest point of any glyph at any master of either face, accents included, 3699 and 1018 on `full_v1`, or 3703 and 1033 with the Weight axis at 600, so nothing clips.
+
+**The fonts have the OpenType features GF Latin Core needs.** `mark` places each combining accent where the measuring stick's composites place its spacing accent on that letter, and on a letter no composite uses, at the height the composites use for a letter as tall, over the middle of its top. `mkmk` stacks a second accent above the first. `ccmp` drops the dot of i and j under an accent above, and splits į into ı and a combining ogonek so its ogonek stays. `case` raises hyphens, dashes, brackets, guillemets and the bullet to the capitals and stands ¡ and ¿ on the baseline. `locl` takes the comma below for Ş and ş in Romanian and Moldavian, and in Catalan tightens the middle dot between two l. The cards print no ligatures, so there's no `liga`. Ş and Ș are each built with their own accent, a cedilla and a comma below, where the measuring stick composes one face's Ș with a cedilla and the other's Ş with a comma.
+
+`fontbakery` checks the fonts against the Google Fonts and Universal profiles:
+
+```
+.venv/bin/pip install 'fontbakery[googlefonts]'
+.venv/bin/fontbakery check-googlefonts build/fonts/*.ttf
+```
+
 The fonts ship with the site, as described in `site/README.md`. The measuring stick and the synthetic font baseline stay out of git.
 
 ## Repository layout
