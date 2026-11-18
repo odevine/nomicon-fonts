@@ -138,7 +138,7 @@ class TypeSetter extends HTMLElement {
   </div>
   <figure class="set-out"><svg class="set-svg" role="img" aria-labelledby="ts-t"><title id="ts-t">Your text set in Nomicon Rules</title></svg></figure>
   <p class="src ts-status" aria-live="polite"></p>
-  ${this.preview ? '<div class="preview-note ts-preview"><p>Bleed sets how strong the print look is, and 100 is what the cards show.</p></div>' : ''}
+  ${this.preview ? '<div class="preview-note ts-preview"><p>Bleed sets how strong the print look is, and 75 is what the cards show.</p></div>' : ''}
   <p class="src ts-spacing"></p>
 </div>`;
     this.svg = this.querySelector('.set-svg')!;

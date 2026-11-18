@@ -215,11 +215,11 @@ def test_the_windows_metrics_clear_every_master_and_the_line_metrics_are_shared(
     assert b["OS/2"].sTypoAscender == a["OS/2"].sTypoAscender
 
 
-def test_the_named_instances_are_the_face_at_bleed_100_and_every_standard_weight(tmp_path):
+def test_the_named_instances_are_the_face_at_bleed_75_and_every_standard_weight(tmp_path):
     path, _ = built(tmp_path)
     vf = TTFont(path)
     name = vf["name"]
-    assert [(name.getDebugName(i.subfamilyNameID), i.coordinates) for i in vf["fvar"].instances] == [("Regular", {"BLED": 100})]
+    assert [(name.getDebugName(i.subfamilyNameID), i.coordinates) for i in vf["fvar"].instances] == [("Regular", {"BLED": 75})]
     try:
         fontbuild.set_top_weight(600)
         (tmp_path / "bold").mkdir()
@@ -229,4 +229,4 @@ def test_the_named_instances_are_the_face_at_bleed_100_and_every_standard_weight
     vf = TTFont(bold)
     got = [(vf["name"].getDebugName(i.subfamilyNameID), i.coordinates["wght"]) for i in vf["fvar"].instances]
     assert got == [("Regular", 400), ("Medium", 500), ("SemiBold", 600)]
-    assert all(i.coordinates["BLED"] == 100 for i in vf["fvar"].instances)
+    assert all(i.coordinates["BLED"] == 75 for i in vf["fvar"].instances)

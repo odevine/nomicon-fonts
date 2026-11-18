@@ -3,7 +3,7 @@
 The composites of the measuring stick place each accent on its letter at an offset, and the combining accents are
 those spacing accents moved onto the origin, so an offset says where on its letter an accent's middle goes. `anchors`
 reads each letter's top and bottom anchors from those offsets and, for a letter no composite uses, from its outline
-at the height the composites put accents at. Everything is read from the default master, Bleed 100 at the regular
+at the height the composites put accents at. Everything is read from the default master, Bleed 75 at the regular
 weight, in the font's own units. The bold master grows each glyph about its own middle, so the same anchors hold at
 every weight, as the composites' fixed offsets do
 

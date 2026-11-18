@@ -1,11 +1,12 @@
 """Variable fonts of each face of a session with a Bleed axis, built from its traces and the synthetic font baseline
 
-Bleed is the strength of the face's print look in percent, the ink spread and rounding measured on its traced
-stacks, which fill in sharp inner corners and round off outer ones. At 100 every glyph is as the session traced or
-built it, at 25 a quarter of the print look is left and at 125 it is a quarter stronger. The synthetic font baseline,
-which glyphstack.baseline makes, is each face drawn at a Bleed of 25 and is the lowest master as it is. A glyph with
-no stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
-each strength. A traced glyph keeps its trace at 100 and moves by the change the print look makes to its baseline
+Bleed sets the strength of the face's print look, the ink spread and rounding measured on its traced stacks, which
+fill in sharp inner corners and round off outer ones. It runs from 0 to 100 as the Google Fonts axis registry has
+it, each step a hundredth of the measured look. At 75, the default, every glyph is as the session traced or built
+it, at 0 a quarter of the print look is left and at 100 it is a quarter stronger. The synthetic font baseline, which
+glyphstack.baseline makes, is each face drawn at a Bleed of 0 and is the lowest master as it is. A glyph with no
+stack of its own is its baseline outline with its points moved onto the edge the rest of the print look draws at
+each strength. A traced glyph keeps its trace at 75 and moves by the change the print look makes to its baseline
 outline at the other strengths, so every master of a glyph has the same points. Composites stay composites of their parts.
 The fonts kern with the baseline's kerning, the measuring stick's designed kerning, which doesn't change with Bleed. With --weight
 the fonts also have a Weight axis from 400 to a semibold at 600, or to the weight given, each glyph's regular outline grown with the same points
@@ -42,9 +43,11 @@ from . import features, fontfit, log, styles, target
 from .contours import UM_PER_PX, contours_at, sym_dev
 
 # past a quarter more than measured the look closes more slits than a fixed set of points can follow
-AXIS = dict(tag="BLED", name="Bleed", minimum=25, default=100, maximum=125)
+AXIS = dict(tag="BLED", name="Bleed", minimum=0, default=75, maximum=100)
+# Bleed 0 leaves a quarter of the print look, so the look's strength in percent is the Bleed plus this
+OFFSET = 25
 # strengths between these interpolate to within about 1 µm of the look drawn at them
-MASTERS = (25, 50, 100, 125)
+MASTERS = (0, 25, 75, 100)
 # the output's units per em as a multiple of the measuring stick's, since one unit of a 1000 unit em is about 3 µm
 # at the printed size, coarser than the 1 µm the masters are fitted to
 SCALE = 4
@@ -84,6 +87,11 @@ LICENSE_FILE = Path(__file__).resolve().parents[1] / "OFL.txt"
 ACCENT_BELOW = {"Ş": "cedilla", "ş": "cedilla", "Ţ": "cedilla", "ţ": "cedilla",
                 "Ș": "commaaccent", "ș": "commaaccent", "Ț": "commaaccent", "ț": "commaaccent"}
 BELOW_CHAR = {"cedilla": "¸", "commaaccent": None}
+
+
+def strength(bleed):
+    """The print look's strength at a Bleed, 1 being the look as measured"""
+    return (bleed + OFFSET) / 100
 
 
 def set_top_weight(top):
@@ -904,7 +912,11 @@ def char_name(ch):
 
 
 def base_bleed(font):
-    """The Bleed a source font was saved at and its units per measuring stick unit, 0 and 1 for the measuring stick itself"""
+    """The strength of print look a source font was saved with and its units per measuring stick unit, 0 and 1 for the measuring stick itself
+
+    A static font this module saved names the strength in percent in its family, so "Bleed 25" is a quarter of the
+    look, which is Bleed 0 on the axis
+    """
     family = font["name"].getDebugName(1) if "name" in font else None
     m = re.search(r"Bleed (\d+(?:\.\d+)?)$", family or "")
     return (float(m.group(1)) / 100, SCALE) if m else (0.0, 1)
@@ -938,9 +950,9 @@ def face_glyphs(font, traces, face, chars, weight=False):
         raise SystemExit(f"the {face} face has no glyph built with its print look in traces.json")
     look = looks[0]
     shared = next(e["p"] for k, e in traces.items() if styles.style_of(k) == face and "p" in e)
-    ts = [m / 100 for m in MASTERS]
+    ts = [strength(m) for m in MASTERS]
     if t0 > min(ts):
-        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100:g}, past the lowest master {MASTERS[0]}")
+        raise SystemExit(f"the {face} source is saved at Bleed {t0 * 100 - OFFSET:g}, past the lowest master {MASTERS[0]}")
     want, cmap = {}, {}
     taken = {char_name(ch) for ch in chars}
     weights = 2 if weight else 1
@@ -991,7 +1003,7 @@ def face_glyphs(font, traces, face, chars, weight=False):
             bold = embolden(rc, heights)
             more, held_bold = standins(bold, joints, Placed(bold, shared), look, ts, t0=t0)
             if held_bold is not None:
-                log.log.warning("%s %s bold stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held_bold * 100))
+                log.log.warning("%s %s bold stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held_bold * 100 - OFFSET))
         made[gname] = "outline"
         if e and not e.get("built"):
             trace = parse_trace(e["trace"])
@@ -1001,7 +1013,7 @@ def face_glyphs(font, traces, face, chars, weight=False):
         elif weight:
             masters = masters + more
         if held is not None:
-            log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100))
+            log.log.warning("%s %s stops bleeding at %d, past it the print look closes a gap its points cannot follow", face, gname, round(held * 100 - OFFSET))
         glyphs[gname] = quadratic(masters)
         adv[gname] = wider(e["adv"] if e else font["hmtx"][name if name in font["hmtx"].metrics else name + ".part" if name else font.getBestCmap()[ord(ch)]][0] / k)
     return glyphs, cmap, adv, made
@@ -1121,7 +1133,7 @@ def weight_styles(italic):
 
 
 def instances(ds, family, italic, weight):
-    """Named instances at Bleed 100, the face's Regular or Italic and with weight each standard weight the axis reaches"""
+    """Named instances at the default Bleed, the look as measured, the face's Regular or Italic and with weight each standard weight the axis reaches"""
     for style, w in weight_styles(italic) if weight else [("Italic" if italic else "Regular", None)]:
         inst = InstanceDescriptor()
         inst.familyName, inst.styleName = family, style
@@ -1203,6 +1215,7 @@ def build_face(font, traces, face, family, style, chars, out, weight=False):
     italic = face != styles.primary()
     instances(ds, family, italic, weight)
     vf, _, _ = varLib.build(ds)
+    # the named instances sit at the default, so STAT names it, elided from style names
     stat = [dict(tag=AXIS["tag"], name=AXIS["name"], values=[dict(value=AXIS["default"], name="Regular", flags=0x2)])]
     if weight:
         values = [dict(value=w, name=WEIGHT_NAMES[w]) | (dict(flags=0x2) if w == 400 else {}) for _, w in weight_styles(False)]
@@ -1238,10 +1251,10 @@ def share_metrics(paths):
 
 
 def static(path, bleed, out=None):
-    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength"""
+    """Saves a variable font fixed at one Bleed as a static font in out, beside it by default, its family named for the strength of print look it carries in percent, which base_bleed reads back"""
     font = instantiateVariableFont(TTFont(path), {AXIS["tag"]: bleed})
     name = font["name"]
-    family, style = name.getDebugName(1) + f" Bleed {bleed:g}", name.getDebugName(2)
+    family, style = name.getDebugName(1) + f" Bleed {bleed + OFFSET:g}", name.getDebugName(2)
     if "STAT" in font:
         del font["STAT"]
     ps = family.replace(" ", "") + "-" + style.replace(" ", "")
